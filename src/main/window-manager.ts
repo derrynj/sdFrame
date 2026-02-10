@@ -137,9 +137,9 @@ export class WindowManager {
     return { x, y, width, height };
   }
 
-  async createFrame(url: string, partialBounds?: Partial<Bounds>): Promise<void> {
+  async createFrame(url: string, name?: string, partialBounds?: Partial<Bounds>): Promise<void> {
     const id = crypto.randomUUID();
-    logService.debug('Creating frame', { id, url });
+    logService.debug('Creating frame', { id, url, name });
     
     const color = this.getNextColor();
     const defaultBounds = this.getDefaultBounds();
@@ -150,6 +150,7 @@ export class WindowManager {
 
     const frameConfig: FrameConfig = {
       id,
+      name,
       url,
       enabled: true,
       bounds,
@@ -162,7 +163,7 @@ export class WindowManager {
     
     await this.openFrameWindow(frameConfig);
 
-    logService.info('Frame created', { id, url });
+    logService.info('Frame created', { id, url, name });
   }
 
   private createFrameWindow(config: FrameConfig): BrowserWindow {
@@ -372,7 +373,8 @@ export class WindowManager {
         if (document.getElementById('sdframe-drag-handle')) return;
         const handle = document.createElement('div');
         handle.id = 'sdframe-drag-handle';
-        handle.innerHTML = '<span class="frame-id">${config.id.slice(0, 8)}</span><button class="unsnap-btn" id="sdframe-unsnap">Unsnap</button><button class="menu-btn" id="sdframe-menu-btn" title="Click for menu">⋮</button>';
+        const displayName = '${config.name || config.id.slice(0, 8)}';
+        handle.innerHTML = '<span class="frame-id">' + displayName + '</span><button class="unsnap-btn" id="sdframe-unsnap">Unsnap</button><button class="menu-btn" id="sdframe-menu-btn" title="Click for menu">⋮</button>';
         document.body.insertBefore(handle, document.body.firstChild);
 
         // Set initial unsnap button state based on current snap status
@@ -421,6 +423,24 @@ export class WindowManager {
     });
   }
 
+  private updateDragHandleName(window: BrowserWindow, frameId: string, name: string | undefined): void {
+    const displayName = name || frameId.slice(0, 8);
+    const js = `
+      (function() {
+        const frameIdSpan = document.querySelector('#sdframe-drag-handle .frame-id');
+        if (frameIdSpan) {
+          frameIdSpan.textContent = '${displayName}';
+        }
+      })();
+    `;
+    window.webContents.executeJavaScript(js).catch((error) => {
+      logService.error('Failed to update drag handle name', {
+        frameId,
+        error: error instanceof Error ? error.message : String(error)
+      });
+    });
+  }
+
   async retryLoadUrl(frameId: string): Promise<void> {
     const window = this.frameWindows.get(frameId);
     const config = configService.getFrame(frameId);
@@ -451,22 +471,21 @@ export class WindowManager {
     if (!currentConfig) return;
 
     // Handle partial bounds updates (width/height only)
-    let newBounds = updates.bounds;
     if (updates.bounds && typeof updates.bounds === 'object') {
       const boundsUpdate = updates.bounds as Partial<Bounds>;
+      // Always merge with current bounds to ensure complete bounds object
+      const newBounds = {
+        x: boundsUpdate.x ?? currentConfig.bounds.x,
+        y: boundsUpdate.y ?? currentConfig.bounds.y,
+        width: boundsUpdate.width ?? currentConfig.bounds.width,
+        height: boundsUpdate.height ?? currentConfig.bounds.height,
+      };
+
+      // If size changed, clear snaps
       if (boundsUpdate.width !== undefined || boundsUpdate.height !== undefined) {
-        // Merge with current bounds
-        newBounds = {
-          x: currentConfig.bounds.x,
-          y: currentConfig.bounds.y,
-          width: boundsUpdate.width ?? currentConfig.bounds.width,
-          height: boundsUpdate.height ?? currentConfig.bounds.height,
-        };
-        
-        // Clear snaps when size changes
         configService.updateSnappedTo(id, []);
         snapManager.removeAllSnapConnectionsForFrame(id);
-        
+
         // Notify about snap status change
         if (window) {
           window.webContents.send(IPC_CHANNELS.FRAME_SNAP_STATUS_CHANGED, {
@@ -474,6 +493,9 @@ export class WindowManager {
           });
         }
       }
+
+      // Replace partial bounds with complete bounds in updates
+      updates = { ...updates, bounds: newBounds };
     }
 
     configService.updateFrame(id, updates);
@@ -485,8 +507,12 @@ export class WindowManager {
         });
       }
 
-      if (newBounds) {
-        window.setBounds(this.validateBounds(newBounds));
+      if (updates.name !== undefined && updates.name !== currentConfig.name) {
+        this.updateDragHandleName(window, id, updates.name);
+      }
+
+      if (updates.bounds) {
+        window.setBounds(this.validateBounds(updates.bounds));
       }
 
       if (updates.enabled === false) {
@@ -515,7 +541,7 @@ export class WindowManager {
       buttons: ['Remove', 'Cancel'],
       title: 'Remove Frame?',
       message: 'Are you sure you want to remove this frame?',
-      detail: `URL: ${config.url}\nID: ${config.id.slice(0, 8)}`,
+      detail: `Name: ${config.name || config.id.slice(0, 8)}\nURL: ${config.url}`,
       defaultId: 1, // Default to Cancel
       cancelId: 1,
     });

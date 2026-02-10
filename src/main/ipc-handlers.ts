@@ -20,9 +20,9 @@ export function registerIPCHandlers(): void {
   ipcMain.handle(IPC_CHANNELS.FRAME_ADD, async (_event, payload: unknown) => {
     try {
       const validated = FrameAddPayloadSchema.parse(payload);
-      await windowManager.createFrame(validated.url, validated.bounds);
+      await windowManager.createFrame(validated.url, validated.name, validated.bounds);
       trayManager.updateContextMenu();
-      logService.debug('Frame added successfully', { url: validated.url });
+      logService.debug('Frame added successfully', { url: validated.url, name: validated.name });
       return { success: true };
     } catch (error) {
       logService.error('IPC frame:add failed', { 
@@ -35,12 +35,14 @@ export function registerIPCHandlers(): void {
   ipcMain.handle(IPC_CHANNELS.FRAME_UPDATE, async (_event, payload: unknown) => {
     try {
       const validated = FrameUpdatePayloadSchema.parse(payload);
+      logService.debug('Frame update received', { id: validated.id, config: validated.config });
       windowManager.updateFrame(validated.id, validated.config);
       trayManager.updateContextMenu();
       return { success: true };
     } catch (error) {
       logService.error('IPC frame:update failed', { 
-        error: error instanceof Error ? error.message : String(error) 
+        error: error instanceof Error ? error.message : String(error),
+        payload
       });
       return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
     }

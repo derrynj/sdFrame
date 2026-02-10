@@ -6,6 +6,7 @@ interface SnapTarget {
 
 interface FrameConfig {
   id: string;
+  name?: string;
   url: string;
   enabled: boolean;
   bounds: { x: number; y: number; width: number; height: number };
@@ -31,6 +32,7 @@ interface AppConfig {
 
 const elements = {
   addFrameForm: document.getElementById('add-frame-form') as HTMLFormElement,
+  nameInput: document.getElementById('name-input') as HTMLInputElement,
   urlInput: document.getElementById('url-input') as HTMLInputElement,
   framesContainer: document.getElementById('frames-container') as HTMLDivElement,
   enableAllBtn: document.getElementById('enable-all-btn') as HTMLButtonElement,
@@ -80,7 +82,7 @@ function renderFrames(frames: FrameConfig[]): void {
       <div class="frame-header">
         <div class="frame-color" style="background: ${frame.color}"></div>
         <div class="frame-info">
-          <div class="frame-id">${frame.id.slice(0, 8)}</div>
+          <div class="frame-id">${escapeHtml(frame.name || frame.id.slice(0, 8))}</div>
           <div class="frame-url" title="${escapeHtml(frame.url)}">${escapeHtml(frame.url)}</div>
         </div>
         <span class="frame-status ${frame.enabled ? '' : 'disabled'}">
@@ -97,6 +99,7 @@ function renderFrames(frames: FrameConfig[]): void {
         <button class="btn btn-danger btn-small remove-btn" data-id="${frame.id}">Remove</button>
       </div>
       <div class="edit-form hidden" data-edit-id="${frame.id}">
+        <input type="text" class="edit-name-input" value="${escapeHtml(frame.name || '')}" placeholder="Frame name">
         <input type="url" class="edit-url-input" value="${escapeHtml(frame.url)}" placeholder="https://example.com">
         <div class="edit-size-inputs">
           <div class="edit-size-input">
@@ -179,12 +182,18 @@ function attachFrameListeners(): void {
       const id = (e.target as HTMLElement).dataset.id;
       if (id) {
         const editForm = elements.framesContainer.querySelector(`[data-edit-id="${id}"]`);
+        const nameInput = editForm?.querySelector('.edit-name-input') as HTMLInputElement;
         const urlInput = editForm?.querySelector('.edit-url-input') as HTMLInputElement;
         const widthInput = editForm?.querySelector('.edit-width-input') as HTMLInputElement;
         const heightInput = editForm?.querySelector('.edit-height-input') as HTMLInputElement;
         
         if (urlInput && urlInput.value) {
           const config: any = { url: urlInput.value };
+          
+          // Always include name, even if empty
+          if (nameInput) {
+            config.name = nameInput.value.trim() || undefined;
+          }
           
           if (widthInput && widthInput.value) {
             const width = parseInt(widthInput.value, 10);
@@ -201,7 +210,9 @@ function attachFrameListeners(): void {
             }
           }
           
-          await window.sdFrame.frame.update({ id, config });
+          console.log('Saving frame config:', { id, config });
+          const result = await window.sdFrame.frame.update({ id, config });
+          console.log('Save result:', result);
           await loadFrames();
         }
       }
@@ -233,14 +244,20 @@ function attachFrameListeners(): void {
 
 elements.addFrameForm.addEventListener('submit', async (e) => {
   e.preventDefault();
+  const name = elements.nameInput.value.trim();
   const url = elements.urlInput.value.trim();
   if (url) {
     try {
-      const result = await window.sdFrame.frame.add({ url });
+      const payload: any = { url };
+      if (name) {
+        payload.name = name;
+      }
+      const result = await window.sdFrame.frame.add(payload);
       console.log('Add frame result:', result);
       if (result && !result.success) {
         alert('Failed to add frame: ' + result.error);
       }
+      elements.nameInput.value = '';
       elements.urlInput.value = '';
       await loadFrames();
     } catch (err) {

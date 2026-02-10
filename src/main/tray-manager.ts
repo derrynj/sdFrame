@@ -56,7 +56,7 @@ export class TrayManager {
     const frames = configService.getFrames();
 
     const frameMenuItems: Electron.MenuItemConstructorOptions[] = frames.map(frame => ({
-      label: `${frame.enabled ? '●' : '○'} Frame ${frame.id.slice(0, 8)}`,
+      label: `${frame.enabled ? '●' : '○'} ${frame.name || 'Frame ' + frame.id.slice(0, 8)}`,
       submenu: [
         {
           label: frame.url.length > 40 ? frame.url.slice(0, 40) + '...' : frame.url,

@@ -17,6 +17,7 @@ export const SnapTargetSchema = z.object({
 
 export const FrameConfigSchema = z.object({
   id: z.string().uuid(),
+  name: z.string().optional(),
   url: z.string().url(),
   enabled: z.boolean(),
   bounds: BoundsSchema,
@@ -44,6 +45,7 @@ export const AppConfigSchema = z.object({
 });
 
 export const FrameAddPayloadSchema = z.object({
+  name: z.string().optional(),
   url: z.string().url(),
   bounds: BoundsSchema.partial().optional(),
 });

@@ -22,6 +22,7 @@ export interface SnapConnection {
 
 export interface FrameConfig {
   id: string;
+  name?: string;
   url: string;
   enabled: boolean;
   bounds: Bounds;
@@ -66,6 +67,7 @@ export type IPCRendererChannels =
   | 'frame:removed';
 
 export interface FrameAddPayload {
+  name?: string;
   url: string;
   bounds?: Partial<Bounds>;
 }

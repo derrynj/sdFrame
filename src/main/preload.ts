@@ -31,6 +31,7 @@ const IPC_CHANNELS = {
 } as const;
 
 interface FrameAddPayload {
+  name?: string;
   url: string;
   bounds?: { x?: number; y?: number; width?: number; height?: number };
 }
