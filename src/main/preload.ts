@@ -26,6 +26,7 @@ const IPC_CHANNELS = {
   FRAME_UNSNAP: 'frame:unsnap',
   FRAME_ENABLE_ALL: 'frame:enable-all',
   FRAME_DISABLE_ALL: 'frame:disable-all',
+  FRAME_SNAP_STATUS_CHANGED: 'frame:snap-status-changed',
 } as const;
 
 interface FrameAddPayload {
@@ -119,9 +120,13 @@ const api = {
     showBorder: (callback: (data: { color: string; width: number }) => void) => {
       ipcRenderer.on(IPC_CHANNELS.FRAME_SHOW_BORDER, (_event, data) => callback(data));
     },
-    
+
     hideBorder: (callback: () => void) => {
       ipcRenderer.on(IPC_CHANNELS.FRAME_HIDE_BORDER, () => callback());
+    },
+
+    snapStatusChanged: (callback: (data: { isSnapped: boolean; snappedToColor?: string }) => void) => {
+      ipcRenderer.on(IPC_CHANNELS.FRAME_SNAP_STATUS_CHANGED, (_event, data) => callback(data));
     },
   },
 

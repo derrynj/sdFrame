@@ -11,22 +11,55 @@ interface EdgeInfo {
   end: number;
 }
 
+export interface SnapStatusChangeCallback {
+  (frameId: string, isSnapped: boolean, snappedToColor?: string): void;
+}
+
 export class SnapManager {
   private windows: Map<string, BrowserWindow> = new Map();
   private isDragging = false;
   private dragStartPositions: Map<string, Bounds> = new Map();
   private groupMoveInProgress = false;
+  private previousBounds: Map<string, Bounds> = new Map();
+  private snapStatusChangeCallbacks: SnapStatusChangeCallback[] = [];
   suppressSnapping = false;
 
   registerWindow(id: string, window: BrowserWindow): void {
     this.windows.set(id, window);
+    this.previousBounds.set(id, window.getBounds());
     this.setupWindowListeners(id, window);
     logService.debug('Window registered for snapping', { id });
   }
 
   unregisterWindow(id: string): void {
     this.windows.delete(id);
+    this.previousBounds.delete(id);
     logService.debug('Window unregistered from snapping', { id });
+  }
+
+  onSnapStatusChange(callback: SnapStatusChangeCallback): void {
+    this.snapStatusChangeCallbacks.push(callback);
+  }
+
+  private notifySnapStatusChange(frameId: string, isSnapped: boolean, snappedToColor?: string): void {
+    this.snapStatusChangeCallbacks.forEach(callback => {
+      callback(frameId, isSnapped, snappedToColor);
+    });
+  }
+
+  private isFrameSnapped(id: string): boolean {
+    const frame = configService.getFrame(id);
+    return frame ? frame.snappedTo.length > 0 : false;
+  }
+
+  private getSnappedToColor(id: string): string | undefined {
+    const frame = configService.getFrame(id);
+    if (!frame || frame.snappedTo.length === 0) return undefined;
+    
+    // Get the color of the first snapped-to window
+    const firstSnapTarget = frame.snappedTo[0];
+    const targetFrame = configService.getFrame(firstSnapTarget.frameId);
+    return targetFrame?.color;
   }
 
   private setupWindowListeners(id: string, window: BrowserWindow): void {
@@ -87,9 +120,11 @@ export class SnapManager {
     window.on('moved', () => {
       if (this.groupMoveInProgress) return;
       this.isDragging = false;
-      
+
       const config = configService.get();
       if (config.layoutLocked) return;
+
+      const wasSnapped = this.isFrameSnapped(id);
 
       if (config.snapEnabled) {
         this.applySnapping(id);
@@ -98,6 +133,33 @@ export class SnapManager {
       if (!this.suppressSnapping) {
         this.updateSnapConnections(id);
         this.persistBounds(id);
+      }
+
+      const isNowSnapped = this.isFrameSnapped(id);
+
+      // Notify snap status change for this frame
+      if (wasSnapped !== isNowSnapped) {
+        const snappedToColor = isNowSnapped ? this.getSnappedToColor(id) : undefined;
+        this.notifySnapStatusChange(id, isNowSnapped, snappedToColor);
+      }
+
+      // Notify all frames that this frame is now snapped to (if any)
+      // Since we now have bidirectional connections, the target frames will have
+      // this frame in their snappedTo array, so they'll be notified when we call
+      // updateSnapConnections on them. But we need to notify them here as well
+      // to ensure the UI updates immediately.
+      if (isNowSnapped) {
+        const frame = configService.getFrame(id);
+        if (frame && frame.snappedTo.length > 0) {
+          frame.snappedTo.forEach(snapTarget => {
+            const targetFrame = configService.getFrame(snapTarget.frameId);
+            if (targetFrame) {
+              const targetIsSnapped = targetFrame.snappedTo.length > 0;
+              const targetSnappedToColor = targetIsSnapped ? this.getSnappedToColor(snapTarget.frameId) : undefined;
+              this.notifySnapStatusChange(snapTarget.frameId, targetIsSnapped, targetSnappedToColor);
+            }
+          });
+        }
       }
 
       const group = this.getGroup(id);
@@ -109,10 +171,26 @@ export class SnapManager {
 
       this.dragStartPositions.clear();
       moveStartBounds = null;
+      this.previousBounds.set(id, window.getBounds());
     });
 
     window.on('resized', () => {
       if (configService.get().layoutLocked) return;
+
+      const currentBounds = window.getBounds();
+      const previousBounds = this.previousBounds.get(id);
+
+      // Auto-unsnap if dimensions changed (width or height)
+      if (previousBounds && (currentBounds.width !== previousBounds.width || currentBounds.height !== previousBounds.height)) {
+        const wasSnapped = this.isFrameSnapped(id);
+        if (wasSnapped) {
+          logService.debug('Auto-unsnap due to dimension change', { id, previousBounds, currentBounds });
+          this.removeAllSnapConnectionsForFrame(id);
+          this.notifySnapStatusChange(id, false);
+        }
+      }
+
+      this.previousBounds.set(id, currentBounds);
       this.updateSnapConnections(id);
       this.persistBounds(id);
     });
@@ -245,20 +323,47 @@ export class SnapManager {
   /**
    * Records a snap connection with edge information.
    * Called when snapping is applied to persist the relationship.
+   * Records bidirectional connections so both frames know they're snapped.
    */
   private recordSnapConnection(fromId: string, toId: string, edge: SnapEdge): void {
     const frame = configService.getFrame(fromId);
     if (!frame) return;
 
-    // Check if already recorded
+    // Record connection from fromId to toId
     const existing = frame.snappedTo.find(s => s.frameId === toId);
     if (existing) {
       existing.edge = edge;  // Update edge
     } else {
       frame.snappedTo.push({ frameId: toId, edge });
     }
-
     configService.updateSnappedTo(fromId, frame.snappedTo);
+
+    // Record reverse connection from toId to fromId
+    const toFrame = configService.getFrame(toId);
+    if (toFrame) {
+      // Get the opposite edge for the reverse connection
+      const oppositeEdge = this.getOppositeEdge(edge);
+      const reverseExisting = toFrame.snappedTo.find(s => s.frameId === fromId);
+      if (reverseExisting) {
+        reverseExisting.edge = oppositeEdge;  // Update edge
+      } else {
+        toFrame.snappedTo.push({ frameId: fromId, edge: oppositeEdge });
+      }
+      configService.updateSnappedTo(toId, toFrame.snappedTo);
+    }
+  }
+
+  /**
+   * Gets the opposite edge for a bidirectional snap connection.
+   */
+  private getOppositeEdge(edge: SnapEdge): SnapEdge {
+    switch (edge) {
+      case 'left': return 'right';
+      case 'right': return 'left';
+      case 'top': return 'bottom';
+      case 'bottom': return 'top';
+      default: return edge; // For alignment edges, return as-is
+    }
   }
 
   private getEdges(id: string, bounds: Bounds): EdgeInfo[] {
@@ -387,17 +492,23 @@ export class SnapManager {
       frame.snappedTo = [];
       configService.updateSnappedTo(id, []);
     }
-    
-    // Remove this frame from other frames' snap connections
+
+    // Remove this frame from other frames' snap connections and notify them
     const allFrames = configService.getFrames();
     allFrames.forEach(otherFrame => {
       const hadConnection = otherFrame.snappedTo.some(s => s.frameId === id);
       if (hadConnection) {
         otherFrame.snappedTo = otherFrame.snappedTo.filter(s => s.frameId !== id);
         configService.updateSnappedTo(otherFrame.id, otherFrame.snappedTo);
+
+        // Notify the other frame about the snap status change
+        this.notifySnapStatusChange(otherFrame.id, otherFrame.snappedTo.length > 0);
       }
     });
-    
+
+    // Notify about snap status change for this frame
+    this.notifySnapStatusChange(id, false);
+
     logService.debug('Removed all snap connections for frame', { id });
   }
 

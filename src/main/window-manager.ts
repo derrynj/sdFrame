@@ -21,6 +21,46 @@ export class WindowManager {
 
   constructor() {
     this.loadExistingColors();
+    this.setupSnapStatusCallback();
+  }
+
+  private setupSnapStatusCallback(): void {
+    snapManager.onSnapStatusChange((frameId, isSnapped, snappedToColor) => {
+      const window = this.frameWindows.get(frameId);
+      if (!window) return;
+
+      // Send IPC message to renderer to update snap status
+      window.webContents.send(IPC_CHANNELS.FRAME_SNAP_STATUS_CHANGED, {
+        isSnapped,
+        snappedToColor,
+      });
+
+      // Update frame color to match snapped window
+      if (isSnapped && snappedToColor) {
+        this.updateFrameColor(frameId, snappedToColor);
+      }
+    });
+  }
+
+  private updateFrameColor(frameId: string, newColor: string): void {
+    const config = configService.getFrame(frameId);
+    if (!config) return;
+
+    // Update the frame color in config
+    configService.updateFrame(frameId, { color: newColor });
+
+    // Update the drag handle color
+    const window = this.frameWindows.get(frameId);
+    if (window) {
+      const css = `
+        #sdframe-drag-handle {
+          background: linear-gradient(to bottom, ${newColor}dd, ${newColor}88) !important;
+        }
+      `;
+      window.webContents.insertCSS(css).catch(() => {});
+    }
+
+    logService.debug('Frame color updated to match snapped window', { frameId, newColor });
   }
 
   private loadExistingColors(): void {
@@ -267,6 +307,7 @@ export class WindowManager {
         font-size: 10px;
         cursor: pointer;
         opacity: 0.8;
+        display: none; /* Hidden by default, shown when snapped */
       }
       #sdframe-drag-handle .unsnap-btn:hover {
         background: rgba(255,255,255,0.3);
@@ -286,12 +327,22 @@ export class WindowManager {
         handle.innerHTML = '<span class="frame-id">${config.id.slice(0, 8)}</span><button class="unsnap-btn" id="sdframe-unsnap">Unsnap</button>';
         document.body.insertBefore(handle, document.body.firstChild);
         document.body.style.paddingTop = '24px';
-        
+
         document.getElementById('sdframe-unsnap').addEventListener('click', function() {
           if (window.sdFrame && window.sdFrame.ipc) {
             window.sdFrame.ipc.invoke(window.sdFrame.channels.FRAME_UNSNAP, { id: '${config.id}' });
           }
         });
+
+        // Listen for snap status changes
+        if (window.sdFrame && window.sdFrame.on && window.sdFrame.on.snapStatusChanged) {
+          window.sdFrame.on.snapStatusChanged(function(data) {
+            const unsnapBtn = document.getElementById('sdframe-unsnap');
+            if (unsnapBtn) {
+              unsnapBtn.style.display = data.isSnapped ? 'inline-block' : 'none';
+            }
+          });
+        }
       })();
     `;
 
@@ -475,6 +526,12 @@ export class WindowManager {
               snapManager.removeSnapConnection(id, target.frameId, edge);
             }
           });
+          // Notify about snap status change if no more connections
+          if (frame.snappedTo.filter(s => s.edge !== edge).length === 0) {
+            window.webContents.send(IPC_CHANNELS.FRAME_SNAP_STATUS_CHANGED, {
+              isSnapped: false,
+            });
+          }
         }
       }
 
