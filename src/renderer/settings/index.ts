@@ -98,6 +98,16 @@ function renderFrames(frames: FrameConfig[]): void {
       </div>
       <div class="edit-form hidden" data-edit-id="${frame.id}">
         <input type="url" class="edit-url-input" value="${escapeHtml(frame.url)}" placeholder="https://example.com">
+        <div class="edit-size-inputs">
+          <div class="edit-size-input">
+            <label for="edit-width-${frame.id}">Width</label>
+            <input type="number" id="edit-width-${frame.id}" class="edit-width-input" value="${frame.bounds.width}" min="100" max="5000" step="10">
+          </div>
+          <div class="edit-size-input">
+            <label for="edit-height-${frame.id}">Height</label>
+            <input type="number" id="edit-height-${frame.id}" class="edit-height-input" value="${frame.bounds.height}" min="100" max="5000" step="10">
+          </div>
+        </div>
         <div class="edit-actions">
           <button class="btn btn-primary btn-small save-edit-btn" data-id="${frame.id}">Save</button>
           <button class="btn btn-secondary btn-small cancel-edit-btn" data-id="${frame.id}">Cancel</button>
@@ -169,9 +179,29 @@ function attachFrameListeners(): void {
       const id = (e.target as HTMLElement).dataset.id;
       if (id) {
         const editForm = elements.framesContainer.querySelector(`[data-edit-id="${id}"]`);
-        const input = editForm?.querySelector('.edit-url-input') as HTMLInputElement;
-        if (input && input.value) {
-          await window.sdFrame.frame.update({ id, config: { url: input.value } });
+        const urlInput = editForm?.querySelector('.edit-url-input') as HTMLInputElement;
+        const widthInput = editForm?.querySelector('.edit-width-input') as HTMLInputElement;
+        const heightInput = editForm?.querySelector('.edit-height-input') as HTMLInputElement;
+        
+        if (urlInput && urlInput.value) {
+          const config: any = { url: urlInput.value };
+          
+          if (widthInput && widthInput.value) {
+            const width = parseInt(widthInput.value, 10);
+            if (width >= 100 && width <= 5000) {
+              config.bounds = { width };
+            }
+          }
+          
+          if (heightInput && heightInput.value) {
+            const height = parseInt(heightInput.value, 10);
+            if (height >= 100 && height <= 5000) {
+              if (!config.bounds) config.bounds = {};
+              config.bounds.height = height;
+            }
+          }
+          
+          await window.sdFrame.frame.update({ id, config });
           await loadFrames();
         }
       }

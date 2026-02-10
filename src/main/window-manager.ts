@@ -395,6 +395,32 @@ export class WindowManager {
     const currentConfig = configService.getFrame(id);
     if (!currentConfig) return;
 
+    // Handle partial bounds updates (width/height only)
+    let newBounds = updates.bounds;
+    if (updates.bounds && typeof updates.bounds === 'object') {
+      const boundsUpdate = updates.bounds as Partial<Bounds>;
+      if (boundsUpdate.width !== undefined || boundsUpdate.height !== undefined) {
+        // Merge with current bounds
+        newBounds = {
+          x: currentConfig.bounds.x,
+          y: currentConfig.bounds.y,
+          width: boundsUpdate.width ?? currentConfig.bounds.width,
+          height: boundsUpdate.height ?? currentConfig.bounds.height,
+        };
+        
+        // Clear snaps when size changes
+        configService.updateSnappedTo(id, []);
+        snapManager.removeAllSnapConnectionsForFrame(id);
+        
+        // Notify about snap status change
+        if (window) {
+          window.webContents.send(IPC_CHANNELS.FRAME_SNAP_STATUS_CHANGED, {
+            isSnapped: false,
+          });
+        }
+      }
+    }
+
     configService.updateFrame(id, updates);
 
     if (window) {
@@ -404,8 +430,8 @@ export class WindowManager {
         });
       }
 
-      if (updates.bounds) {
-        window.setBounds(this.validateBounds(updates.bounds));
+      if (newBounds) {
+        window.setBounds(this.validateBounds(newBounds));
       }
 
       if (updates.enabled === false) {
