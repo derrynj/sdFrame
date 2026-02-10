@@ -344,6 +344,23 @@ export class WindowManager {
         opacity: 0.3;
         cursor: not-allowed;
       }
+      #sdframe-drag-handle .menu-btn {
+        -webkit-app-region: no-drag;
+        background: rgba(255,255,255,0.2);
+        border: none;
+        color: #fff;
+        padding: 2px 8px;
+        border-radius: 3px;
+        font-size: 14px;
+        font-weight: bold;
+        cursor: pointer;
+        opacity: 0.8;
+        transition: opacity 0.2s, background 0.2s;
+      }
+      #sdframe-drag-handle .menu-btn:hover {
+        background: rgba(255,255,255,0.3);
+        opacity: 1;
+      }
     `;
 
     // Check if the frame is already snapped to set initial button state
@@ -355,7 +372,7 @@ export class WindowManager {
         if (document.getElementById('sdframe-drag-handle')) return;
         const handle = document.createElement('div');
         handle.id = 'sdframe-drag-handle';
-        handle.innerHTML = '<span class="frame-id">${config.id.slice(0, 8)}</span><button class="unsnap-btn" id="sdframe-unsnap">Unsnap</button>';
+        handle.innerHTML = '<span class="frame-id">${config.id.slice(0, 8)}</span><button class="unsnap-btn" id="sdframe-unsnap">Unsnap</button><button class="menu-btn" id="sdframe-menu-btn" title="Click for menu">⋮</button>';
         document.body.insertBefore(handle, document.body.firstChild);
 
         // Set initial unsnap button state based on current snap status
@@ -370,13 +387,18 @@ export class WindowManager {
           }
         });
 
-        // Add context menu event listener to show tray menu on right-click
-        handle.addEventListener('contextmenu', function(event) {
-          event.preventDefault();
-          if (window.sdFrame && window.sdFrame.tray) {
-            window.sdFrame.tray.showMenu(event.clientX, event.clientY);
-          }
-        });
+        // Add click event listener to show tray menu on left-click
+        const menuBtn = document.getElementById('sdframe-menu-btn');
+        if (menuBtn) {
+          menuBtn.addEventListener('click', function(event) {
+            event.preventDefault();
+            event.stopPropagation();
+            // Use cursor position for menu placement (like right-click did)
+            if (window.sdFrame && window.sdFrame.ipc) {
+              window.sdFrame.ipc.invoke('tray:show-menu', { x: event.clientX, y: event.clientY });
+            }
+          });
+        }
 
         // Listen for snap status changes
         if (window.sdFrame && window.sdFrame.on && window.sdFrame.on.snapStatusChanged) {
@@ -391,7 +413,12 @@ export class WindowManager {
     `;
 
     window.webContents.insertCSS(css).catch(() => {});
-    window.webContents.executeJavaScript(js).catch(() => {});
+    window.webContents.executeJavaScript(js).catch((error) => {
+      logService.error('Failed to execute drag handle JavaScript', {
+        frameId: config.id,
+        error: error instanceof Error ? error.message : String(error)
+      });
+    });
   }
 
   async retryLoadUrl(frameId: string): Promise<void> {

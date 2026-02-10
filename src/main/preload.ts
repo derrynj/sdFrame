@@ -117,11 +117,6 @@ const api = {
       ipcRenderer.invoke(IPC_CHANNELS.APP_QUIT),
   },
 
-  tray: {
-    showMenu: (x: number, y: number) =>
-      ipcRenderer.invoke(IPC_CHANNELS.TRAY_SHOW_MENU, { x, y }),
-  },
-
   on: {
     showBorder: (callback: (data: { color: string; width: number }) => void) => {
       ipcRenderer.on(IPC_CHANNELS.FRAME_SHOW_BORDER, (_event, data) => callback(data));
