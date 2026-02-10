@@ -470,7 +470,7 @@ export class WindowManager {
     const currentConfig = configService.getFrame(id);
     if (!currentConfig) return;
 
-    // Handle partial bounds updates (width/height only)
+    // Handle partial bounds updates (always merge to ensure complete bounds object)
     if (updates.bounds && typeof updates.bounds === 'object') {
       const boundsUpdate = updates.bounds as Partial<Bounds>;
       // Always merge with current bounds to ensure complete bounds object
@@ -732,6 +732,9 @@ export class WindowManager {
 
     // Step 3: Trigger snap detection immediately since all windows are created
     snapManager.handleDisplayChange();
+
+    // Step 3.5: Notify all frames of their snap status to apply group colors
+    snapManager.notifyAllSnapStatuses();
 
     // Step 4: Load actual URLs concurrently (non-blocking)
     const urlLoadPromises = windows.map(({ window, config }) =>

@@ -556,6 +556,20 @@ export class SnapManager {
     logService.info('Recalculated all snap connections');
   }
 
+  /**
+   * Notifies all frames of their current snap status.
+   * This should be called after frames are restored to ensure
+   * group colors are applied immediately.
+   */
+  notifyAllSnapStatuses(): void {
+    for (const id of this.windows.keys()) {
+      const isSnapped = this.isFrameSnapped(id);
+      const snappedToColor = isSnapped ? this.getSnappedToColor(id) : undefined;
+      this.notifySnapStatusChange(id, isSnapped, snappedToColor);
+    }
+    logService.info('Notified all frames of snap status');
+  }
+
   handleDisplayChange(): void {
     const { screen } = require('electron');
     const primaryDisplay = screen.getPrimaryDisplay();

@@ -211,7 +211,24 @@ class ConfigService {
   updateFrame(id: string, updates: Partial<Omit<FrameConfig, 'id'>>): void {
     const index = this.config.frames.findIndex(f => f.id === id);
     if (index !== -1) {
-      this.config.frames[index] = { ...this.config.frames[index], ...updates };
+      const currentFrame = this.config.frames[index];
+      let updatedFrame = { ...currentFrame, ...updates };
+
+      // Handle partial bounds updates - merge with existing bounds
+      if (updates.bounds && typeof updates.bounds === 'object') {
+        const boundsUpdate = updates.bounds as Partial<FrameConfig['bounds']>;
+        updatedFrame = {
+          ...updatedFrame,
+          bounds: {
+            x: boundsUpdate.x ?? currentFrame.bounds.x,
+            y: boundsUpdate.y ?? currentFrame.bounds.y,
+            width: boundsUpdate.width ?? currentFrame.bounds.width,
+            height: boundsUpdate.height ?? currentFrame.bounds.height,
+          },
+        };
+      }
+
+      this.config.frames[index] = updatedFrame;
       this.save();
       logService.debug('Frame updated', { id, updates });
     }
