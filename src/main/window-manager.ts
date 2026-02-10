@@ -322,6 +322,10 @@ export class WindowManager {
       }
     `;
 
+    // Check if the frame is already snapped to set initial button state
+    const isInitiallySnapped = config.snappedTo && config.snappedTo.length > 0;
+    const initialButtonDisplay = isInitiallySnapped ? 'inline-block' : 'none';
+
     const js = `
       (function() {
         if (document.getElementById('sdframe-drag-handle')) return;
@@ -330,6 +334,12 @@ export class WindowManager {
         handle.innerHTML = '<span class="frame-id">${config.id.slice(0, 8)}</span><button class="unsnap-btn" id="sdframe-unsnap">Unsnap</button>';
         document.body.insertBefore(handle, document.body.firstChild);
         document.body.style.paddingTop = '24px';
+
+        // Set initial unsnap button state based on current snap status
+        const unsnapBtn = document.getElementById('sdframe-unsnap');
+        if (unsnapBtn) {
+          unsnapBtn.style.display = '${initialButtonDisplay}';
+        }
 
         document.getElementById('sdframe-unsnap').addEventListener('click', function() {
           if (window.sdFrame && window.sdFrame.ipc) {
