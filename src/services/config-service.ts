@@ -1,8 +1,8 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import { app } from 'electron';
+import { app, screen } from 'electron';
 import { AppConfigSchema } from '../shared/schemas';
-import type { AppConfig, FrameConfig, SnapTarget } from '../shared/types';
+import type { AppConfig, FrameConfig, SnapTarget, FrameSizeSettings } from '../shared/types';
 import { CONFIG_FILE_NAME, DEFAULT_CONFIG } from '../shared/constants';
 import { logService } from './log-service';
 
@@ -14,6 +14,18 @@ function getDefaultConfigPath(): string {
   } else {
     return path.join(app.getAppPath(), 'default-config.json');
   }
+}
+
+/**
+ * Gets the default frame size based on screen width/4 for width and screen height/4 for height.
+ */
+function getDefaultFrameSize(): FrameSizeSettings {
+  const primaryDisplay = screen.getPrimaryDisplay();
+  const { width, height } = primaryDisplay.workAreaSize;
+  return {
+    width: Math.floor(width / 4),
+    height: Math.floor(height / 4),
+  };
 }
 
 /**
@@ -39,11 +51,19 @@ function migrateSnappedTo(snappedTo: string[] | SnapTarget[]): SnapTarget[] {
 /**
  * Checks if config needs migration and migrates if necessary.
  */
-function migrateConfig(config: AppConfig): AppConfig {
+function migrateConfig(config: any): AppConfig {
   let needsMigration = false;
+  let migratedConfig: any = { ...config };
   
-  const migratedFrames = config.frames.map(frame => {
-    if (typeof frame.snappedTo[0] === 'string') {
+  // Migrate frameSize if not present
+  if (!migratedConfig.frameSize) {
+    needsMigration = true;
+    logService.info('Migrating config to add frameSize setting');
+    migratedConfig.frameSize = getDefaultFrameSize();
+  }
+  
+  const migratedFrames = migratedConfig.frames.map((frame: any) => {
+    if (frame.snappedTo && frame.snappedTo.length > 0 && typeof frame.snappedTo[0] === 'string') {
       needsMigration = true;
       return {
         ...frame,
@@ -54,14 +74,14 @@ function migrateConfig(config: AppConfig): AppConfig {
   });
   
   if (needsMigration) {
-    logService.info('Migrated config from string[] to SnapTarget[] format');
-    return {
-      ...config,
-      frames: migratedFrames,
-    };
+    if (migratedFrames !== migratedConfig.frames) {
+      logService.info('Migrated config from string[] to SnapTarget[] format');
+      migratedConfig.frames = migratedFrames;
+    }
+    return AppConfigSchema.parse(migratedConfig);
   }
   
-  return config;
+  return AppConfigSchema.parse(migratedConfig);
 }
 
 class ConfigService {
@@ -123,7 +143,11 @@ class ConfigService {
         error: error instanceof Error ? error.message : String(error)
       });
     }
-    return { ...DEFAULT_CONFIG };
+    // Initialize frameSize with default values
+    return {
+      ...DEFAULT_CONFIG,
+      frameSize: getDefaultFrameSize(),
+    };
   }
 
   private saveImmediate(): void {

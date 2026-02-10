@@ -26,6 +26,11 @@ export const FrameConfigSchema = z.object({
 
 export const LogLevelSchema = z.enum(['debug', 'info', 'warn', 'error']);
 
+export const FrameSizeSettingsSchema = z.object({
+  width: z.number().min(100),
+  height: z.number().min(100),
+});
+
 export const AppConfigSchema = z.object({
   version: z.literal(1),
   snapEnabled: z.boolean(),
@@ -34,6 +39,7 @@ export const AppConfigSchema = z.object({
   layoutLocked: z.boolean(),
   alwaysOnTop: z.boolean(),
   logLevel: LogLevelSchema,
+  frameSize: FrameSizeSettingsSchema,
   frames: z.array(FrameConfigSchema),
 });
 
@@ -60,8 +66,8 @@ export const FrameResetLayoutPayloadSchema = z.object({
 });
 
 export const ConfigSetPayloadSchema = z.object({
-  key: z.enum(['snapEnabled', 'snapThreshold', 'groupMovementEnabled', 'layoutLocked', 'alwaysOnTop', 'logLevel']),
-  value: z.union([z.boolean(), z.number(), LogLevelSchema]),
+  key: z.enum(['snapEnabled', 'snapThreshold', 'groupMovementEnabled', 'layoutLocked', 'alwaysOnTop', 'logLevel', 'frameSize']),
+  value: z.union([z.boolean(), z.number(), LogLevelSchema, FrameSizeSettingsSchema]),
 });
 
 export const FrameUnsnapPayloadSchema = z.object({

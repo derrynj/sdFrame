@@ -89,11 +89,14 @@ export class WindowManager {
   private getDefaultBounds(): Bounds {
     const primaryDisplay = screen.getPrimaryDisplay();
     const { width, height } = primaryDisplay.workAreaSize;
+    const config = configService.get();
+    const frameWidth = config.frameSize.width || DEFAULT_FRAME_WIDTH;
+    const frameHeight = config.frameSize.height || DEFAULT_FRAME_HEIGHT;
     return {
-      x: Math.floor((width - DEFAULT_FRAME_WIDTH) / 2),
-      y: Math.floor((height - DEFAULT_FRAME_HEIGHT) / 2),
-      width: DEFAULT_FRAME_WIDTH,
-      height: DEFAULT_FRAME_HEIGHT,
+      x: Math.floor((width - frameWidth) / 2),
+      y: Math.floor((height - frameHeight) / 2),
+      width: frameWidth,
+      height: frameHeight,
     };
   }
 
@@ -485,6 +488,27 @@ export class WindowManager {
       });
     }
     logService.info('Layout reset', { id: id ?? 'all' });
+  }
+
+  resetAllFrameDimensions(): void {
+    const frames = configService.getFrames();
+    const defaultBounds = this.getDefaultBounds();
+    
+    frames.forEach((frame, index) => {
+      const window = this.frameWindows.get(frame.id);
+      if (window) {
+        const offset = index * 30;
+        const bounds = {
+          ...defaultBounds,
+          x: defaultBounds.x + offset,
+          y: defaultBounds.y + offset,
+        };
+        window.setBounds(bounds);
+        configService.updateFrameBounds(frame.id, bounds);
+        configService.updateSnappedTo(frame.id, []);
+      }
+    });
+    logService.info('All frame dimensions reset');
   }
 
   setLayoutLocked(locked: boolean): void {

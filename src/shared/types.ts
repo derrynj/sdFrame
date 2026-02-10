@@ -31,6 +31,11 @@ export interface FrameConfig {
 
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error';
 
+export interface FrameSizeSettings {
+  width: number;
+  height: number;
+}
+
 export interface AppConfig {
   version: 1;
   snapEnabled: boolean;
@@ -39,6 +44,7 @@ export interface AppConfig {
   layoutLocked: boolean;
   alwaysOnTop: boolean;
   logLevel: LogLevel;
+  frameSize: FrameSizeSettings;
   frames: FrameConfig[];
 }
 
@@ -83,7 +89,7 @@ export interface FrameResetLayoutPayload {
 
 export interface ConfigSetPayload {
   key: keyof Omit<AppConfig, 'version' | 'frames'>;
-  value: boolean | number | LogLevel;
+  value: boolean | number | LogLevel | FrameSizeSettings;
 }
 
 export interface FrameUnsnapPayload {

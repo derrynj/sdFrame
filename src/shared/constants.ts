@@ -8,6 +8,10 @@ export const DEFAULT_CONFIG: AppConfig = {
   layoutLocked: false,
   alwaysOnTop: false,
   logLevel: 'info',
+  frameSize: {
+    width: 0, // Will be calculated as screen width/4 at runtime
+    height: 0, // Will be calculated as screen width/4 at runtime
+  },
   frames: [],
 };
 

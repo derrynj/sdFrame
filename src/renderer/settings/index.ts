@@ -13,6 +13,11 @@ interface FrameConfig {
   snappedTo: SnapTarget[];
 }
 
+interface FrameSizeSettings {
+  width: number;
+  height: number;
+}
+
 interface AppConfig {
   version: 1;
   snapEnabled: boolean;
@@ -20,6 +25,7 @@ interface AppConfig {
   groupMovementEnabled: boolean;
   layoutLocked: boolean;
   logLevel: 'debug' | 'info' | 'warn' | 'error';
+  frameSize: FrameSizeSettings;
   frames: FrameConfig[];
 }
 
@@ -35,6 +41,9 @@ const elements = {
   layoutLocked: document.getElementById('layout-locked') as HTMLInputElement,
   alwaysOnTop: document.getElementById('always-on-top') as HTMLInputElement,
   logLevel: document.getElementById('log-level') as HTMLSelectElement,
+  frameWidth: document.getElementById('frame-width') as HTMLInputElement,
+  frameHeight: document.getElementById('frame-height') as HTMLInputElement,
+  resetDimensionsBtn: document.getElementById('reset-dimensions-btn') as HTMLButtonElement,
   resetAllBtn: document.getElementById('reset-all-btn') as HTMLButtonElement,
 };
 
@@ -48,6 +57,8 @@ async function loadConfig(): Promise<void> {
     elements.layoutLocked.checked = config.layoutLocked;
     elements.alwaysOnTop.checked = config.alwaysOnTop;
     elements.logLevel.value = config.logLevel;
+    elements.frameWidth.value = String(config.frameSize.width);
+    elements.frameHeight.value = String(config.frameSize.height);
   }
 }
 
@@ -232,6 +243,47 @@ elements.alwaysOnTop.addEventListener('change', async () => {
 elements.logLevel.addEventListener('change', async () => {
   const value = elements.logLevel.value as 'debug' | 'info' | 'warn' | 'error';
   await window.sdFrame.config.set({ key: 'logLevel', value });
+});
+
+elements.frameWidth.addEventListener('change', async () => {
+  const width = parseInt(elements.frameWidth.value, 10);
+  if (width >= 100 && width <= 5000) {
+    const response = await window.sdFrame.config.get();
+    if (response && response.success && response.config) {
+      const newFrameSize = {
+        width,
+        height: response.config.frameSize.height,
+      };
+      await window.sdFrame.config.set({ key: 'frameSize', value: newFrameSize });
+    }
+  }
+});
+
+elements.frameHeight.addEventListener('change', async () => {
+  const height = parseInt(elements.frameHeight.value, 10);
+  if (height >= 100 && height <= 5000) {
+    const response = await window.sdFrame.config.get();
+    if (response && response.success && response.config) {
+      const newFrameSize = {
+        width: response.config.frameSize.width,
+        height,
+      };
+      await window.sdFrame.config.set({ key: 'frameSize', value: newFrameSize });
+    }
+  }
+});
+
+elements.resetDimensionsBtn.addEventListener('click', async () => {
+  // Reset to default screen width/4 for width and screen height/4 for height
+  const screenWidth = window.screen.width;
+  const screenHeight = window.screen.height;
+  const newFrameSize = {
+    width: Math.floor(screenWidth / 4),
+    height: Math.floor(screenHeight / 4),
+  };
+  await window.sdFrame.config.set({ key: 'frameSize', value: newFrameSize });
+  elements.frameWidth.value = String(newFrameSize.width);
+  elements.frameHeight.value = String(newFrameSize.height);
 });
 
 elements.resetAllBtn.addEventListener('click', async () => {

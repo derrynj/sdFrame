@@ -162,6 +162,10 @@ export function registerIPCHandlers(): void {
         windowManager.setLayoutLocked(validated.value as boolean);
       } else if (validated.key === 'alwaysOnTop') {
         windowManager.setAlwaysOnTop(validated.value as boolean);
+      } else if (validated.key === 'frameSize') {
+        // When frame size changes, reset all frame dimensions
+        configService.set(validated.key, validated.value as never);
+        windowManager.resetAllFrameDimensions();
       } else {
         configService.set(validated.key, validated.value as never);
       }
