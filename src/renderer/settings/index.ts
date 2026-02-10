@@ -195,24 +195,45 @@ function attachFrameListeners(): void {
             config.name = nameInput.value.trim() || undefined;
           }
           
+          // Fetch current frame config to merge bounds values
+          const currentFramesResponse = await window.sdFrame.frame.getAll();
+          let currentBounds = { x: 0, y: 0, width: 800, height: 600 };
+          
+          if (currentFramesResponse && currentFramesResponse.success && currentFramesResponse.frames) {
+            const currentFrame = (currentFramesResponse.frames as FrameConfig[]).find(f => f.id === id);
+            if (currentFrame) {
+              currentBounds = currentFrame.bounds;
+            }
+          }
+          
           if (widthInput && widthInput.value) {
             const width = parseInt(widthInput.value, 10);
             if (width >= 100 && width <= 5000) {
-              config.bounds = { width };
+              // Merge with current x/y values
+              config.bounds = { 
+                x: currentBounds.x,
+                y: currentBounds.y,
+                width: width,
+                height: currentBounds.height 
+              };
             }
           }
           
           if (heightInput && heightInput.value) {
             const height = parseInt(heightInput.value, 10);
             if (height >= 100 && height <= 5000) {
+              // Merge with current x/y values and width if already set
               if (!config.bounds) config.bounds = {};
-              config.bounds.height = height;
+              config.bounds = { 
+                x: currentBounds.x,
+                y: currentBounds.y,
+                width: config.bounds.width || currentBounds.width,
+                height: height 
+              };
             }
           }
           
-          console.log('Saving frame config:', { id, config });
-          const result = await window.sdFrame.frame.update({ id, config });
-          console.log('Save result:', result);
+          await window.sdFrame.frame.update({ id, config });
           await loadFrames();
         }
       }
