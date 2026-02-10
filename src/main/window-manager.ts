@@ -90,8 +90,8 @@ export class WindowManager {
     const primaryDisplay = screen.getPrimaryDisplay();
     const { width, height } = primaryDisplay.workAreaSize;
     const config = configService.get();
-    const frameWidth = config.frameSize.width || DEFAULT_FRAME_WIDTH;
-    const frameHeight = config.frameSize.height || DEFAULT_FRAME_HEIGHT;
+    const frameWidth = config.frameSize.width || Math.floor(width / 4);
+    const frameHeight = config.frameSize.height || Math.floor(height / 4) + 24;
     return {
       x: Math.floor((width - frameWidth) / 2),
       y: Math.floor((height - frameHeight) / 2),

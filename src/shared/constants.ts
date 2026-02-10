@@ -10,7 +10,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   logLevel: 'info',
   frameSize: {
     width: 0, // Will be calculated as screen width/4 at runtime
-    height: 0, // Will be calculated as screen width/4 at runtime
+    height: 0, // Will be calculated as screen height/4 + 24px (drag handle) at runtime
   },
   frames: [],
 };
@@ -34,7 +34,7 @@ export const FRAME_COLORS = [
 ];
 
 export const DEFAULT_FRAME_WIDTH = 800;
-export const DEFAULT_FRAME_HEIGHT = 600;
+export const DEFAULT_FRAME_HEIGHT = 624;
 
 export const CONFIG_FILE_NAME = 'config.json';
 export const LOG_FILE_NAME = 'sdframe.log';
