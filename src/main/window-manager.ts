@@ -606,10 +606,11 @@ export class WindowManager {
 
     this.settingsWindow = new BrowserWindow({
       width: 500,
-      height: 600,
+      height: 800,
       resizable: true,
       minimizable: true,
       maximizable: false,
+      alwaysOnTop: true,
       title: 'sdFrame Settings',
       webPreferences: {
         nodeIntegration: false,
