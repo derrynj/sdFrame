@@ -240,6 +240,9 @@ export class WindowManager {
       window.show(); // Show error page
     }
 
+    // Ensure settings window stays on top after showing a new frame
+    this.bringSettingsToFront();
+
     return window;
   }
 
@@ -367,6 +370,13 @@ export class WindowManager {
     }
   }
 
+  private bringSettingsToFront(): void {
+    if (this.settingsWindow && !this.settingsWindow.isDestroyed()) {
+      this.settingsWindow.focus();
+      this.settingsWindow.setAlwaysOnTop(true);
+    }
+  }
+
   updateFrame(id: string, updates: Partial<Omit<FrameConfig, 'id'>>): void {
     const window = this.frameWindows.get(id);
     const currentConfig = configService.getFrame(id);
@@ -389,6 +399,8 @@ export class WindowManager {
         window.hide();
       } else if (updates.enabled === true) {
         window.show();
+        // Bring settings window to front after showing a frame
+        this.bringSettingsToFront();
       }
     }
 
@@ -595,6 +607,9 @@ export class WindowManager {
     // Wait for all URLs to load in background
     await Promise.all(urlLoadPromises);
 
+    // Ensure settings window stays on top after restoring frames
+    this.bringSettingsToFront();
+
     logService.info('Frames restored', { count: frames.length });
   }
 
@@ -672,6 +687,8 @@ export class WindowManager {
     frames.forEach(frame => {
       this.updateFrame(frame.id, { enabled: true });
     });
+    // Ensure settings window stays on top after enabling all frames
+    this.bringSettingsToFront();
     logService.info('All frames enabled');
   }
 
