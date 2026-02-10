@@ -336,7 +336,6 @@ export class WindowManager {
         handle.id = 'sdframe-drag-handle';
         handle.innerHTML = '<span class="frame-id">${config.id.slice(0, 8)}</span><button class="unsnap-btn" id="sdframe-unsnap">Unsnap</button>';
         document.body.insertBefore(handle, document.body.firstChild);
-        document.body.style.paddingTop = '24px';
 
         // Set initial unsnap button state based on current snap status
         const unsnapBtn = document.getElementById('sdframe-unsnap');
