@@ -95,7 +95,9 @@ const api = {
   },
 
   ipc: {
-    invoke: ipcRenderer.invoke,
+    invoke: (channel: string, data?: unknown) => ipcRenderer.invoke(channel, data),
+    on: (channel: string, callback: (...args: unknown[]) => void) =>
+      ipcRenderer.on(channel, (_event, ...args) => callback(...args)),
   },
 
   channels: IPC_CHANNELS,

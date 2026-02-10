@@ -402,9 +402,9 @@ export class WindowManager {
           });
         }
 
-        // Listen for snap status changes
-        if (window.sdFrame && window.sdFrame.on && window.sdFrame.on.snapStatusChanged) {
-          window.sdFrame.on.snapStatusChanged(function(data) {
+        // Listen for snap status changes via IPC
+        if (window.sdFrame && window.sdFrame.ipc) {
+          window.sdFrame.ipc.on('${IPC_CHANNELS.FRAME_SNAP_STATUS_CHANGED}', function(data) {
             const unsnapBtn = document.getElementById('sdframe-unsnap');
             if (unsnapBtn) {
               unsnapBtn.style.display = data.isSnapped ? 'inline-block' : 'none';
