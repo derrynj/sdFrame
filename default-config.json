@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "snapEnabled": true,
+  "snapThreshold": 10,
+  "groupMovementEnabled": true,
+  "layoutLocked": false,
+  "alwaysOnTop": true,
+  "logLevel": "info",
+  "frames": []
+}

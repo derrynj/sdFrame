@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:;">
+  <title>sdFrame Settings</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>sdFrame</h1>
+    </header>
+
+    <section class="add-frame">
+      <h2>Add New Frame</h2>
+      <form id="add-frame-form">
+        <div class="form-group">
+          <label for="url-input">URL</label>
+          <input 
+            type="url" 
+            id="url-input" 
+            placeholder="https://example.com" 
+            required
+          >
+        </div>
+        <button type="submit" class="btn btn-primary">Add Frame</button>
+      </form>
+    </section>
+
+    <section class="frames-list">
+      <h2>Frames</h2>
+      <div class="bulk-actions">
+        <button id="enable-all-btn" class="btn btn-secondary">Enable All</button>
+        <button id="disable-all-btn" class="btn btn-secondary">Disable All</button>
+      </div>
+      <div id="frames-container">
+        <p class="no-frames">No frames configured</p>
+      </div>
+    </section>
+
+    <section class="global-settings">
+      <h2>Settings</h2>
+      
+      <div class="setting-row">
+        <label>
+          <input type="checkbox" id="snap-enabled">
+          Enable Snapping
+        </label>
+      </div>
+
+      <div class="setting-row">
+        <label>
+          <input type="checkbox" id="group-movement">
+          Group Movement
+        </label>
+      </div>
+
+      <div class="setting-row">
+        <label for="snap-threshold">Snap Threshold</label>
+        <select id="snap-threshold">
+          <option value="5">5px</option>
+          <option value="10">10px</option>
+          <option value="15">15px</option>
+          <option value="20">20px</option>
+          <option value="25">25px</option>
+          <option value="30">30px</option>
+        </select>
+      </div>
+
+      <div class="setting-row">
+        <label>
+          <input type="checkbox" id="layout-locked">
+          Lock Layout
+        </label>
+      </div>
+
+      <div class="setting-row">
+        <label>
+          <input type="checkbox" id="always-on-top">
+          Always on Top
+        </label>
+      </div>
+
+      <div class="setting-row">
+        <label for="log-level">Log Level</label>
+        <select id="log-level">
+          <option value="debug">Debug</option>
+          <option value="info">Info</option>
+          <option value="warn">Warn</option>
+          <option value="error">Error</option>
+        </select>
+      </div>
+
+      <div class="setting-row">
+        <button id="reset-all-btn" class="btn btn-secondary">Reset All Positions</button>
+      </div>
+    </section>
+  </div>
+
+  <script src="index.js"></script>
+</body>
+</html>

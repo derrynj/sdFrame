@@ -1,0 +1,54 @@
+{
+  "name": "sdframe",
+  "version": "0.1.0",
+  "description": "Multi-window kiosk-style web container",
+  "main": "dist/main/index.js",
+  "scripts": {
+    "copy-assets": "node scripts/copy-assets.js",
+    "build": "tsc && npm run copy-assets",
+    "start": "npm run build && electron .",
+    "dev": "tsc && npm run copy-assets && electron .",
+    "pack": "npm run build && electron-builder --dir",
+    "dist": "npm run build && electron-builder"
+  },
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "electron": "^40.1.0",
+    "electron-builder": "^26.7.0",
+    "typescript": "^5.3.0"
+  },
+  "dependencies": {
+    "zod": "^3.22.4"
+  },
+  "build": {
+    "appId": "com.sdframe.app",
+    "productName": "sdFrame",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "assets/**/*",
+      "default-config.json"
+    ],
+    "extraResources": [
+      {
+        "from": "default-config.json",
+        "to": "default-config.json"
+      }
+    ],
+    "win": {
+      "target": "portable",
+      "icon": "assets/icon.png"
+    },
+    "mac": {
+      "target": "dir",
+      "icon": "assets/icon.png"
+    },
+    "portable": {
+      "artifactName": "sdFrame-${version}-portable.exe"
+    }
+  }
+}

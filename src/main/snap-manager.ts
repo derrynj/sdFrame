@@ -1,0 +1,486 @@
+import type { BrowserWindow } from 'electron';
+import type { Bounds, FrameConfig, SnapTarget, SnapEdge } from '../shared/types';
+import { configService } from '../services/config-service';
+import { logService } from '../services/log-service';
+
+interface EdgeInfo {
+  frameId: string;
+  edge: SnapEdge;
+  position: number;
+  start: number;
+  end: number;
+}
+
+export class SnapManager {
+  private windows: Map<string, BrowserWindow> = new Map();
+  private isDragging = false;
+  private dragStartPositions: Map<string, Bounds> = new Map();
+  private groupMoveInProgress = false;
+  suppressSnapping = false;
+
+  registerWindow(id: string, window: BrowserWindow): void {
+    this.windows.set(id, window);
+    this.setupWindowListeners(id, window);
+    logService.debug('Window registered for snapping', { id });
+  }
+
+  unregisterWindow(id: string): void {
+    this.windows.delete(id);
+    logService.debug('Window unregistered from snapping', { id });
+  }
+
+  private setupWindowListeners(id: string, window: BrowserWindow): void {
+    let moveStartBounds: Bounds | null = null;
+
+    window.on('will-move', () => {
+      if (this.groupMoveInProgress) return;
+      if (configService.get().layoutLocked) return;
+
+      moveStartBounds = window.getBounds();
+      this.isDragging = true;
+
+      const group = this.getGroup(id);
+      group.forEach(groupId => {
+        const win = this.windows.get(groupId);
+        if (win) {
+          this.dragStartPositions.set(groupId, win.getBounds());
+        }
+      });
+    });
+
+    window.on('move', () => {
+      if (this.groupMoveInProgress) return;
+      if (!this.isDragging) return;
+      if (configService.get().layoutLocked) return;
+
+      const config = configService.get();
+      if (!config.groupMovementEnabled) return;
+
+      const group = this.getGroup(id);
+      if (group.length <= 1) return;
+
+      const currentBounds = window.getBounds();
+      const startBounds = this.dragStartPositions.get(id);
+      if (!startBounds) return;
+
+      const deltaX = currentBounds.x - startBounds.x;
+      const deltaY = currentBounds.y - startBounds.y;
+
+      this.groupMoveInProgress = true;
+
+      group.forEach(groupId => {
+        if (groupId === id) return;
+        const win = this.windows.get(groupId);
+        const startPos = this.dragStartPositions.get(groupId);
+        if (win && startPos) {
+          win.setBounds({
+            ...startPos,
+            x: startPos.x + deltaX,
+            y: startPos.y + deltaY,
+          });
+        }
+      });
+
+      this.groupMoveInProgress = false;
+    });
+
+    window.on('moved', () => {
+      if (this.groupMoveInProgress) return;
+      this.isDragging = false;
+      
+      const config = configService.get();
+      if (config.layoutLocked) return;
+
+      if (config.snapEnabled) {
+        this.applySnapping(id);
+      }
+
+      if (!this.suppressSnapping) {
+        this.updateSnapConnections(id);
+        this.persistBounds(id);
+      }
+
+      const group = this.getGroup(id);
+      group.forEach(groupId => {
+        if (groupId !== id) {
+          this.persistBounds(groupId);
+        }
+      });
+
+      this.dragStartPositions.clear();
+      moveStartBounds = null;
+    });
+
+    window.on('resized', () => {
+      if (configService.get().layoutLocked) return;
+      this.updateSnapConnections(id);
+      this.persistBounds(id);
+    });
+  }
+
+  private applySnapping(id: string): void {
+    const window = this.windows.get(id);
+    if (!window) return;
+
+    // Skip snapping if suppressed (e.g., during unsnap operation)
+    if (this.suppressSnapping) return;
+
+    const config = configService.get();
+    const threshold = config.snapThreshold;
+    const bounds = window.getBounds();
+    const edges = this.getEdges(id, bounds);
+
+    let snapX: number | null = null;
+    let snapY: number | null = null;
+    let alignX: number | null = null;
+    let alignY: number | null = null;
+    let bestSnapTarget: { targetId: string; edge: SnapEdge } | null = null;
+    let bestAlignTarget: { targetId: string; edge: SnapEdge } | null = null;
+
+    for (const [otherId, otherWindow] of this.windows) {
+      if (otherId === id) continue;
+
+      const otherBounds = otherWindow.getBounds();
+      const otherEdges = this.getEdges(otherId, otherBounds);
+
+      for (const edge of edges) {
+        for (const otherEdge of otherEdges) {
+          if (!this.edgesCanSnap(edge.edge, otherEdge.edge)) continue;
+          if (!this.edgesOverlap(edge, otherEdge)) continue;
+
+          const distance = Math.abs(edge.position - otherEdge.position);
+          if (distance <= threshold) {
+            if (edge.edge === 'left' || edge.edge === 'right') {
+              const adjustment = otherEdge.position - edge.position;
+              if (snapX === null || Math.abs(adjustment) < Math.abs(snapX)) {
+                snapX = adjustment;
+                bestSnapTarget = { targetId: otherId, edge: edge.edge };
+              }
+            } else {
+              const adjustment = otherEdge.position - edge.position;
+              if (snapY === null || Math.abs(adjustment) < Math.abs(snapY)) {
+                snapY = adjustment;
+                bestSnapTarget = { targetId: otherId, edge: edge.edge };
+              }
+            }
+          }
+        }
+      }
+
+      // Check for alignment snaps (separate from edge snaps)
+      // Check top alignment
+      const topDiff = otherBounds.y - bounds.y;
+      if (Math.abs(topDiff) <= threshold) {
+        const horizontalOverlap = bounds.x < otherBounds.x + otherBounds.width &&
+                                  bounds.x + bounds.width > otherBounds.x;
+        if (horizontalOverlap) {
+          if (alignY === null || Math.abs(topDiff) < Math.abs(alignY)) {
+            alignY = topDiff;
+            bestAlignTarget = { targetId: otherId, edge: 'align-top' };
+          }
+        }
+      }
+
+      // Check bottom alignment
+      const bottomDiff = otherBounds.y + otherBounds.height - (bounds.y + bounds.height);
+      if (Math.abs(bottomDiff) <= threshold) {
+        const horizontalOverlap = bounds.x < otherBounds.x + otherBounds.width &&
+                                  bounds.x + bounds.width > otherBounds.x;
+        if (horizontalOverlap) {
+          if (alignY === null || Math.abs(bottomDiff) < Math.abs(alignY)) {
+            alignY = bottomDiff;
+            bestAlignTarget = { targetId: otherId, edge: 'align-bottom' };
+          }
+        }
+      }
+
+      // Check left alignment
+      const leftDiff = otherBounds.x - bounds.x;
+      if (Math.abs(leftDiff) <= threshold) {
+        const verticalOverlap = bounds.y < otherBounds.y + otherBounds.height &&
+                                bounds.y + bounds.height > otherBounds.y;
+        if (verticalOverlap) {
+          if (alignX === null || Math.abs(leftDiff) < Math.abs(alignX)) {
+            alignX = leftDiff;
+            bestAlignTarget = { targetId: otherId, edge: 'align-left' };
+          }
+        }
+      }
+
+      // Check right alignment
+      const rightDiff = otherBounds.x + otherBounds.width - (bounds.x + bounds.width);
+      if (Math.abs(rightDiff) <= threshold) {
+        const verticalOverlap = bounds.y < otherBounds.y + otherBounds.height &&
+                                bounds.y + bounds.height > otherBounds.y;
+        if (verticalOverlap) {
+          if (alignX === null || Math.abs(rightDiff) < Math.abs(alignX)) {
+            alignX = rightDiff;
+            bestAlignTarget = { targetId: otherId, edge: 'align-right' };
+          }
+        }
+      }
+    }
+
+    if (snapX !== null || snapY !== null || alignX !== null || alignY !== null) {
+      window.setBounds({
+        ...bounds,
+        x: bounds.x + (snapX ?? 0) + (alignX ?? 0),
+        y: bounds.y + (snapY ?? 0) + (alignY ?? 0),
+      });
+
+      // Record the edge snap connection immediately when applying the snap
+      if (bestSnapTarget) {
+        this.recordSnapConnection(id, bestSnapTarget.targetId, bestSnapTarget.edge);
+      }
+
+      // Record the alignment snap connection
+      if (bestAlignTarget) {
+        this.recordSnapConnection(id, bestAlignTarget.targetId, bestAlignTarget.edge);
+      }
+
+      logService.debug('Window snapped', { id, snapX, snapY, alignX, alignY, edge: bestSnapTarget?.edge, alignEdge: bestAlignTarget?.edge });
+    }
+  }
+
+  /**
+   * Records a snap connection with edge information.
+   * Called when snapping is applied to persist the relationship.
+   */
+  private recordSnapConnection(fromId: string, toId: string, edge: SnapEdge): void {
+    const frame = configService.getFrame(fromId);
+    if (!frame) return;
+
+    // Check if already recorded
+    const existing = frame.snappedTo.find(s => s.frameId === toId);
+    if (existing) {
+      existing.edge = edge;  // Update edge
+    } else {
+      frame.snappedTo.push({ frameId: toId, edge });
+    }
+
+    configService.updateSnappedTo(fromId, frame.snappedTo);
+  }
+
+  private getEdges(id: string, bounds: Bounds): EdgeInfo[] {
+    return [
+      { frameId: id, edge: 'left', position: bounds.x, start: bounds.y, end: bounds.y + bounds.height },
+      { frameId: id, edge: 'right', position: bounds.x + bounds.width, start: bounds.y, end: bounds.y + bounds.height },
+      { frameId: id, edge: 'top', position: bounds.y, start: bounds.x, end: bounds.x + bounds.width },
+      { frameId: id, edge: 'bottom', position: bounds.y + bounds.height, start: bounds.x, end: bounds.x + bounds.width },
+    ];
+  }
+
+  private edgesCanSnap(edge1: SnapEdge, edge2: SnapEdge): boolean {
+    if (edge1 === 'unknown' || edge2 === 'unknown') return false;
+
+    // Alignment snaps don't use this method - they're handled separately
+    if (edge1.startsWith('align-') || edge2.startsWith('align-')) return false;
+
+    return (
+      (edge1 === 'left' && edge2 === 'right') ||
+      (edge1 === 'right' && edge2 === 'left') ||
+      (edge1 === 'top' && edge2 === 'bottom') ||
+      (edge1 === 'bottom' && edge2 === 'top')
+    );
+  }
+
+  private edgesOverlap(edge1: EdgeInfo, edge2: EdgeInfo): boolean {
+    const overlapStart = Math.max(edge1.start, edge2.start);
+    const overlapEnd = Math.min(edge1.end, edge2.end);
+    const overlapLength = overlapEnd - overlapStart;
+
+    if (overlapLength <= 0) return false;
+
+    // Calculate overlap percentage relative to the shorter edge
+    const edge1Length = edge1.end - edge1.start;
+    const edge2Length = edge2.end - edge2.start;
+    const minLength = Math.min(edge1Length, edge2Length);
+    const overlapPercentage = overlapLength / minLength;
+
+    // Require at least 20% overlap to snap
+    return overlapPercentage >= 0.2;
+  }
+
+  /**
+   * Detects snap information between two windows.
+   * Returns the edge and distance if snapped, null otherwise.
+   */
+  private detectSnap(bounds1: Bounds, bounds2: Bounds, threshold: number): {
+    edge: SnapEdge;
+    distance: number;
+  } | null {
+    const verticalOverlap = bounds1.y < bounds2.y + bounds2.height && bounds1.y + bounds1.height > bounds2.y;
+    const horizontalOverlap = bounds1.x < bounds2.x + bounds2.width && bounds1.x + bounds1.width > bounds2.x;
+
+    const checks: { edge: SnapEdge; distance: number; overlap: boolean }[] = [
+      { edge: 'left', distance: Math.abs(bounds1.x + bounds1.width - bounds2.x), overlap: verticalOverlap },
+      { edge: 'right', distance: Math.abs(bounds2.x + bounds2.width - bounds1.x), overlap: verticalOverlap },
+      { edge: 'top', distance: Math.abs(bounds1.y + bounds1.height - bounds2.y), overlap: horizontalOverlap },
+      { edge: 'bottom', distance: Math.abs(bounds2.y + bounds2.height - bounds1.y), overlap: horizontalOverlap },
+    ];
+
+    for (const check of checks) {
+      if (check.distance <= threshold && check.overlap) {
+        return { edge: check.edge, distance: check.distance };
+      }
+    }
+
+    return null;
+  }
+
+  updateSnapConnections(id: string): void {
+    const window = this.windows.get(id);
+    if (!window) return;
+
+    const config = configService.get();
+    const threshold = config.snapThreshold;
+    const bounds = window.getBounds();
+    const snappedTo: SnapTarget[] = [];
+
+    for (const [otherId, otherWindow] of this.windows) {
+      if (otherId === id) continue;
+
+      const otherBounds = otherWindow.getBounds();
+      const snapInfo = this.detectSnap(bounds, otherBounds, threshold);
+      
+      if (snapInfo) {
+        snappedTo.push({
+          frameId: otherId,
+          edge: snapInfo.edge,
+          distance: snapInfo.distance,
+        });
+      }
+    }
+
+    configService.updateSnappedTo(id, snappedTo);
+  }
+
+  /**
+   * Removes a snap connection from a frame to another frame.
+   * Optionally specifies which edge to remove.
+   */
+  removeSnapConnection(fromId: string, toId: string, edge?: SnapEdge): void {
+    const frame = configService.getFrame(fromId);
+    if (!frame) return;
+
+    if (edge) {
+      // Remove specific edge connection
+      frame.snappedTo = frame.snappedTo.filter(
+        s => !(s.frameId === toId && s.edge === edge)
+      );
+    } else {
+      // Remove all connections to that frame
+      frame.snappedTo = frame.snappedTo.filter(s => s.frameId !== toId);
+    }
+    
+    configService.updateSnappedTo(fromId, frame.snappedTo);
+    logService.debug('Removed snap connection', { fromId, toId, edge });
+  }
+
+  /**
+   * Removes all snap connections for a frame and clears reverse references.
+   */
+  removeAllSnapConnectionsForFrame(id: string): void {
+    // Remove all snap connections from this frame
+    const frame = configService.getFrame(id);
+    if (frame) {
+      frame.snappedTo = [];
+      configService.updateSnappedTo(id, []);
+    }
+    
+    // Remove this frame from other frames' snap connections
+    const allFrames = configService.getFrames();
+    allFrames.forEach(otherFrame => {
+      const hadConnection = otherFrame.snappedTo.some(s => s.frameId === id);
+      if (hadConnection) {
+        otherFrame.snappedTo = otherFrame.snappedTo.filter(s => s.frameId !== id);
+        configService.updateSnappedTo(otherFrame.id, otherFrame.snappedTo);
+      }
+    });
+    
+    logService.debug('Removed all snap connections for frame', { id });
+  }
+
+  getGroup(id: string): string[] {
+    const frames = configService.getFrames();
+    const visited = new Set<string>();
+    const group: string[] = [];
+
+    const dfs = (currentId: string): void => {
+      if (visited.has(currentId)) return;
+      visited.add(currentId);
+      group.push(currentId);
+
+      const frame = frames.find(f => f.id === currentId);
+      if (frame) {
+        frame.snappedTo.forEach(snapTarget => {
+          if (this.windows.has(snapTarget.frameId)) {
+            dfs(snapTarget.frameId);
+          }
+        });
+      }
+
+      frames.forEach(otherFrame => {
+        if (otherFrame.snappedTo.some(s => s.frameId === currentId) && this.windows.has(otherFrame.id)) {
+          dfs(otherFrame.id);
+        }
+      });
+    };
+
+    dfs(id);
+    return group;
+  }
+
+  private persistBounds(id: string): void {
+    const window = this.windows.get(id);
+    if (window) {
+      configService.updateFrameBounds(id, window.getBounds());
+    }
+  }
+
+  recalculateAllConnections(): void {
+    for (const id of this.windows.keys()) {
+      this.updateSnapConnections(id);
+    }
+    logService.info('Recalculated all snap connections');
+  }
+
+  handleDisplayChange(): void {
+    const { screen } = require('electron');
+    const primaryDisplay = screen.getPrimaryDisplay();
+    const { width: screenWidth, height: screenHeight } = primaryDisplay.workAreaSize;
+
+    for (const [id, window] of this.windows) {
+      const bounds = window.getBounds();
+      let needsUpdate = false;
+      const newBounds = { ...bounds };
+
+      if (bounds.x < 0) {
+        newBounds.x = 0;
+        needsUpdate = true;
+      }
+      if (bounds.y < 0) {
+        newBounds.y = 0;
+        needsUpdate = true;
+      }
+      if (bounds.x + bounds.width > screenWidth) {
+        newBounds.x = Math.max(0, screenWidth - bounds.width);
+        needsUpdate = true;
+      }
+      if (bounds.y + bounds.height > screenHeight) {
+        newBounds.y = Math.max(0, screenHeight - bounds.height);
+        needsUpdate = true;
+      }
+
+      if (needsUpdate) {
+        window.setBounds(newBounds);
+        this.persistBounds(id);
+        logService.info('Window bounds adjusted for display change', { id, newBounds });
+      }
+    }
+
+    this.recalculateAllConnections();
+  }
+}
+
+export const snapManager = new SnapManager();

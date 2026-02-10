@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline';">
+  <title>Page Unavailable</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="container">
+    <div class="icon">
+      <svg width="80" height="80" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+        <circle cx="12" cy="12" r="10"/>
+        <path d="M12 8v4"/>
+        <circle cx="12" cy="16" r="1"/>
+      </svg>
+    </div>
+    <h1>Page Unavailable</h1>
+    <p class="url" id="url-display"></p>
+    <p class="error" id="error-display"></p>
+    <button id="retry-btn" class="btn">Try Again</button>
+  </div>
+
+  <script>
+    (function() {
+      const params = window.sdFrame.getQueryParams();
+      const frameId = params.frameId || '';
+      const url = params.url || 'Unknown URL';
+      const error = params.error || 'Failed to load page';
+
+      document.getElementById('url-display').textContent = url;
+      document.getElementById('error-display').textContent = error;
+
+      document.getElementById('retry-btn').addEventListener('click', function() {
+        if (frameId) {
+          window.sdFrame.page.retry(frameId);
+        }
+      });
+    })();
+  </script>
+</body>
+</html>
