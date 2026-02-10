@@ -35,9 +35,15 @@ export class WindowManager {
         snappedToColor,
       });
 
-      // Update frame color to match snapped window
+      // Update frame color to match snapped window (visual only, not config)
       if (isSnapped && snappedToColor) {
-        this.updateFrameColor(frameId, snappedToColor);
+        this.updateFrameColorVisual(frameId, snappedToColor);
+      } else if (!isSnapped) {
+        // Revert to original color from config when unsnapping
+        const config = configService.getFrame(frameId);
+        if (config) {
+          this.updateFrameColorVisual(frameId, config.color);
+        }
       }
     });
   }
@@ -60,7 +66,22 @@ export class WindowManager {
       window.webContents.insertCSS(css).catch(() => {});
     }
 
-    logService.debug('Frame color updated to match snapped window', { frameId, newColor });
+    logService.debug('Frame color updated', { frameId, newColor });
+  }
+
+  private updateFrameColorVisual(frameId: string, newColor: string): void {
+    // Update only the visual appearance (CSS), not the config
+    const window = this.frameWindows.get(frameId);
+    if (window) {
+      const css = `
+        #sdframe-drag-handle {
+          background: linear-gradient(to bottom, ${newColor}dd, ${newColor}88) !important;
+        }
+      `;
+      window.webContents.insertCSS(css).catch(() => {});
+    }
+
+    logService.debug('Frame color updated visually', { frameId, newColor });
   }
 
   private loadExistingColors(): void {

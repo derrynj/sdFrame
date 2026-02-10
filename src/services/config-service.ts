@@ -63,6 +63,7 @@ function migrateConfig(config: any): AppConfig {
   }
   
   const migratedFrames = migratedConfig.frames.map((frame: any) => {
+    // Migrate snappedTo format if needed
     if (frame.snappedTo && frame.snappedTo.length > 0 && typeof frame.snappedTo[0] === 'string') {
       needsMigration = true;
       return {
@@ -73,12 +74,9 @@ function migrateConfig(config: any): AppConfig {
     return frame;
   });
   
-  if (needsMigration) {
-    if (migratedFrames !== migratedConfig.frames) {
-      logService.info('Migrated config from string[] to SnapTarget[] format');
-      migratedConfig.frames = migratedFrames;
-    }
-    return AppConfigSchema.parse(migratedConfig);
+  if (migratedFrames !== migratedConfig.frames) {
+    logService.info('Migrated config from string[] to SnapTarget[] format');
+    migratedConfig.frames = migratedFrames;
   }
   
   return AppConfigSchema.parse(migratedConfig);
