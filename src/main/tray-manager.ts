@@ -6,6 +6,7 @@ import { logService } from '../services/log-service';
 
 export class TrayManager {
   private tray: Tray | null = null;
+  private contextMenu: Menu | null = null;
 
   initialize(): void {
     const iconPath = path.join(__dirname, '..', '..', 'assets', 'icon.png');
@@ -194,11 +195,21 @@ export class TrayManager {
       },
     ]);
 
+    this.contextMenu = contextMenu;
     this.tray.setContextMenu(contextMenu);
   }
 
   private promptEditUrl(frameId: string, currentUrl: string): void {
     windowManager.openSettingsWindow();
+  }
+
+  showContextMenuAt(x: number, y: number): void {
+    if (!this.tray) return;
+
+    this.updateContextMenu();
+    if (this.contextMenu) {
+      this.contextMenu.popup({ x, y });
+    }
   }
 
   destroy(): void {

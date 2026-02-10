@@ -370,6 +370,14 @@ export class WindowManager {
           }
         });
 
+        // Add context menu event listener to show tray menu on right-click
+        handle.addEventListener('contextmenu', function(event) {
+          event.preventDefault();
+          if (window.sdFrame && window.sdFrame.tray) {
+            window.sdFrame.tray.showMenu(event.clientX, event.clientY);
+          }
+        });
+
         // Listen for snap status changes
         if (window.sdFrame && window.sdFrame.on && window.sdFrame.on.snapStatusChanged) {
           window.sdFrame.on.snapStatusChanged(function(data) {

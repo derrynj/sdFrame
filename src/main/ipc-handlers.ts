@@ -197,5 +197,17 @@ export function registerIPCHandlers(): void {
     app.quit();
   });
 
+  ipcMain.handle(IPC_CHANNELS.TRAY_SHOW_MENU, async (_event, payload: { x: number; y: number }) => {
+    try {
+      trayManager.showContextMenuAt(payload.x, payload.y);
+      return { success: true };
+    } catch (error) {
+      logService.error('IPC tray:show-menu failed', {
+        error: error instanceof Error ? error.message : String(error)
+      });
+      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+    }
+  });
+
   logService.info('IPC handlers registered');
 }
