@@ -55,11 +55,15 @@ export class SnapManager {
   private getSnappedToColor(id: string): string | undefined {
     const frame = configService.getFrame(id);
     if (!frame || frame.snappedTo.length === 0) return undefined;
-    
-    // Get the color of the first snapped-to window
-    const firstSnapTarget = frame.snappedTo[0];
-    const targetFrame = configService.getFrame(firstSnapTarget.frameId);
-    return targetFrame?.color;
+
+    // Find all connected frames in this snap group
+    const group = this.getGroup(id);
+    if (group.length === 0) return undefined;
+
+    // Use the smallest frame ID as the color authority (deterministic)
+    const originId = group.sort()[0];
+    const originFrame = configService.getFrame(originId);
+    return originFrame?.color;
   }
 
   private setupWindowListeners(id: string, window: BrowserWindow): void {
