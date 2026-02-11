@@ -2,10 +2,13 @@ const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
 
-// Read .env file
-const envPath = path.join(__dirname, '.env');
+// Get project root directory (parent of scripts directory)
+const projectRoot = path.join(__dirname, '..');
+
+// Read .env file from project root
+const envPath = path.join(projectRoot, '.env');
 if (!fs.existsSync(envPath)) {
-  console.error('.env file not found');
+  console.error('.env file not found at project root');
   process.exit(1);
 }
 
@@ -23,7 +26,7 @@ envContent.split('\n').forEach(line => {
 });
 
 // Set CSC_LINK to point to the certificate file
-const certPath = path.join(__dirname, '.cert', 'signingCert.pfx');
+const certPath = path.join(projectRoot, '.cert', 'signingCert.pfx');
 if (!fs.existsSync(certPath)) {
   console.error('Certificate file not found at .cert/signingCert.pfx');
   process.exit(1);
