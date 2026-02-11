@@ -42,8 +42,7 @@
     ],
     "win": {
       "target": "portable",
-      "icon": "assets/icon.png",
-      "certificateFile": ".cert/signingCert.pfx"
+      "icon": "assets/icon.png"
     },
     "mac": {
       "target": "dir",

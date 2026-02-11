@@ -22,6 +22,14 @@ envContent.split('\n').forEach(line => {
   }
 });
 
+// Set CSC_LINK to point to the certificate file
+const certPath = path.join(__dirname, '.cert', 'signingCert.pfx');
+if (!fs.existsSync(certPath)) {
+  console.error('Certificate file not found at .cert/signingCert.pfx');
+  process.exit(1);
+}
+process.env.CSC_LINK = certPath;
+
 // Run the dist command
 console.log('Building with code signing...');
 try {

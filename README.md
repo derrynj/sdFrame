@@ -97,6 +97,8 @@ The Windows build is configured to use a code signing certificate for authentica
    npm run dist:signed
    ```
 
+The `dist:signed` script automatically sets the `CSC_LINK` environment variable to point to your certificate file and loads the password from `.env`.
+
 **Note:** The `.cert/` directory and `.env` file are excluded from version control (see `.gitignore`) to keep your credentials secure.
 
 ## Preconfiguring Frames
