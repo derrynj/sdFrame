@@ -1,6 +1,6 @@
 {
   "name": "sdframe",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "Multi-window kiosk-style web container",
   "main": "dist/main/index.js",
   "scripts": {
