@@ -12,6 +12,9 @@ dist/
 .env.local
 .env.*.local
 
+# Certificates
+.cert/
+
 # OS files
 .DS_Store
 Thumbs.db

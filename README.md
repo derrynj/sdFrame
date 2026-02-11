@@ -83,6 +83,22 @@ npm run dist
 
 Output: `release/sdFrame-{version}-portable.exe`
 
+### Code Signing
+
+The Windows build is configured to use a code signing certificate for authenticating the executable. To enable signing:
+
+1. Place your `.pfx` certificate file in the `.cert/` directory (e.g., `.cert/signingCert.pfx`)
+2. Add the certificate password to your `.env` file:
+   ```
+   CSC_KEY_PASSWORD=your_password
+   ```
+3. Run the signed build:
+   ```bash
+   npm run dist:signed
+   ```
+
+**Note:** The `.cert/` directory and `.env` file are excluded from version control (see `.gitignore`) to keep your credentials secure.
+
 ## Preconfiguring Frames
 
 You can bundle a default configuration with the executable to preconfigure frames for users. See [DEFAULT_CONFIG.md](DEFAULT_CONFIG.md) for detailed instructions.
