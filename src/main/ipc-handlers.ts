@@ -141,6 +141,11 @@ export function registerIPCHandlers(): void {
     return { success: true };
   });
 
+  handleForSettings(IPC_CHANNELS.FRAME_RESET_DIMENSIONS, async () => {
+    windowManager.resetAllFrameDimensions();
+    return { success: true };
+  });
+
   handleValidatedForSettings(IPC_CHANNELS.CONFIG_SET, ConfigSetPayloadSchema, async (v) => {
     switch (v.key) {
       case 'layoutLocked':

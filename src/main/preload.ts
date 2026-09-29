@@ -27,6 +27,9 @@ const fullApi = {
     resetLayout: (payload: FrameResetLayoutPayload) =>
       ipcRenderer.invoke(IPC_CHANNELS.FRAME_RESET_LAYOUT, payload),
 
+    resetDimensions: () =>
+      ipcRenderer.invoke(IPC_CHANNELS.FRAME_RESET_DIMENSIONS),
+
     getAll: () =>
       ipcRenderer.invoke(IPC_CHANNELS.FRAME_GET_ALL),
 

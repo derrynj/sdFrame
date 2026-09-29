@@ -28,6 +28,7 @@ export class TrayManager {
 
     this.tray.on('click', () => {
       this.updateContextMenu();
+      windowManager.openSettingsWindow();
     });
 
     logService.info('Tray initialized');

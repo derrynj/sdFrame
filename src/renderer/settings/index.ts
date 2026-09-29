@@ -39,6 +39,7 @@ type SdFrameFullApi = {
     remove: (p: { id: string }) => Promise<{ success: boolean; error?: string }>;
     focus: (p: { id: string }) => Promise<{ success: boolean; error?: string }>;
     resetLayout: (p: { id?: string }) => Promise<{ success: boolean; error?: string }>;
+    resetDimensions: () => Promise<{ success: boolean; error?: string }>;
     getAll: () => Promise<{ success: boolean; frames?: FrameConfig[] }>;
     unsnap: (p: { id: string; edge?: string; all?: boolean }) => Promise<{ success: boolean; error?: string }>;
     enableAll: () => Promise<{ success: boolean }>;
@@ -369,16 +370,7 @@ elements.frameHeight.addEventListener('change', async () => {
 });
 
 elements.resetDimensionsBtn.addEventListener('click', async () => {
-  // Reset to default screen width/4 for width and screen height/4 for height
-  const screenWidth = window.screen.width;
-  const screenHeight = window.screen.height;
-  const newFrameSize = {
-    width: Math.floor(screenWidth / 4),
-    height: Math.floor(screenHeight / 4),
-  };
-  await sdFrame.config.set({ key: 'frameSize', value: newFrameSize });
-  elements.frameWidth.value = String(newFrameSize.width);
-  elements.frameHeight.value = String(newFrameSize.height);
+  await sdFrame.frame.resetDimensions();
 });
 
 elements.resetAllBtn.addEventListener('click', async () => {

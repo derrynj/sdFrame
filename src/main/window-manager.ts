@@ -597,20 +597,22 @@ export class WindowManager {
   resetAllFrameDimensions(): void {
     const frames = configService.getFrames();
     const defaultBounds = this.getDefaultBounds();
-    
-    frames.forEach((frame, index) => {
+
+    frames.forEach(frame => {
       const window = this.frameWindows.get(frame.id);
-      if (window) {
-        const offset = index * 30;
-        const bounds = {
-          ...defaultBounds,
-          x: defaultBounds.x + offset,
-          y: defaultBounds.y + offset,
-        };
-        window.setBounds(bounds);
-        configService.updateFrameBounds(frame.id, bounds);
-        configService.updateSnappedTo(frame.id, []);
+      const currentBounds = window?.getBounds() ?? frame.bounds;
+      const bounds = this.validateBounds({
+        ...currentBounds,
+        width: defaultBounds.width,
+        height: defaultBounds.height,
+      });
+
+      if (bounds.width !== currentBounds.width || bounds.height !== currentBounds.height) {
+        snapManager.removeAllSnapConnectionsForFrame(frame.id);
       }
+
+      window?.setBounds(bounds);
+      configService.updateFrameBounds(frame.id, bounds);
     });
     logService.info('All frame dimensions reset');
   }
@@ -764,6 +766,10 @@ export class WindowManager {
 
   openSettingsWindow(): void {
     if (this.settingsWindow && !this.settingsWindow.isDestroyed()) {
+      if (this.settingsWindow.isMinimized()) {
+        this.settingsWindow.restore();
+      }
+      this.settingsWindow.show();
       this.settingsWindow.focus();
       return;
     }
@@ -788,8 +794,19 @@ export class WindowManager {
     const settingsPath = path.join(__dirname, '..', 'renderer', 'settings', 'index.html');
     this.settingsWindow.loadFile(settingsPath);
 
-    this.settingsWindow.on('closed', () => {
-      this.settingsWindow = null;
+    const settingsWindow = this.settingsWindow;
+    settingsWindow.on('close', (event) => {
+      if (!this.isQuitting) {
+        event.preventDefault();
+        settingsWindow.hide();
+        logService.info('Settings window hidden to tray');
+      }
+    });
+
+    settingsWindow.on('closed', () => {
+      if (this.settingsWindow === settingsWindow) {
+        this.settingsWindow = null;
+      }
     });
 
     logService.debug('Settings window opened');
