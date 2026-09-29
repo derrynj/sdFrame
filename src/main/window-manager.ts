@@ -6,8 +6,6 @@ import { configService } from '../services/config-service';
 import { logService } from '../services/log-service';
 import { snapManager } from './snap-manager';
 import {
-  DEFAULT_FRAME_WIDTH,
-  DEFAULT_FRAME_HEIGHT,
   FRAME_COLORS,
   FOCUS_BORDER_WIDTH,
   IPC_CHANNELS,
@@ -18,9 +16,10 @@ export class WindowManager {
   private settingsWindow: BrowserWindow | null = null;
   private usedColors: Set<string> = new Set();
   private isQuitting = false;
+  private intentionalClosing = new Set<string>();
+  private reloadCounts = new Map<string, number>();
 
   constructor() {
-    this.loadExistingColors();
     this.setupSnapStatusCallback();
   }
 
@@ -37,39 +36,18 @@ export class WindowManager {
 
       // Update frame color to match snapped window (visual only, not config)
       if (isSnapped && snappedToColor) {
-        this.updateFrameColorVisual(frameId, snappedToColor);
+        this.updateFrameColor(frameId, snappedToColor);
       } else if (!isSnapped) {
         // Revert to original color from config when unsnapping
         const config = configService.getFrame(frameId);
         if (config) {
-          this.updateFrameColorVisual(frameId, config.color);
+          this.updateFrameColor(frameId, config.color);
         }
       }
     });
   }
 
   private updateFrameColor(frameId: string, newColor: string): void {
-    const config = configService.getFrame(frameId);
-    if (!config) return;
-
-    // Update the frame color in config
-    configService.updateFrame(frameId, { color: newColor });
-
-    // Update the drag handle color
-    const window = this.frameWindows.get(frameId);
-    if (window) {
-      const css = `
-        #sdframe-drag-handle {
-          background: linear-gradient(to bottom, ${newColor}dd, ${newColor}88) !important;
-        }
-      `;
-      window.webContents.insertCSS(css).catch(() => {});
-    }
-
-    logService.debug('Frame color updated', { frameId, newColor });
-  }
-
-  private updateFrameColorVisual(frameId: string, newColor: string): void {
     // Update only the visual appearance (CSS), not the config
     const window = this.frameWindows.get(frameId);
     if (window) {
@@ -84,7 +62,7 @@ export class WindowManager {
     logService.debug('Frame color updated visually', { frameId, newColor });
   }
 
-  private loadExistingColors(): void {
+  loadExistingColors(): void {
     const frames = configService.getFrames();
     frames.forEach(frame => {
       this.usedColors.add(frame.color);
@@ -122,18 +100,13 @@ export class WindowManager {
   }
 
   private validateBounds(bounds: Bounds): Bounds {
-    const primaryDisplay = screen.getPrimaryDisplay();
-    const { width: screenWidth, height: screenHeight } = primaryDisplay.workAreaSize;
-
+    const display = screen.getDisplayMatching(bounds);
+    const wa = display.workArea;
     let { x, y, width, height } = bounds;
-
-    if (x < 0) x = 0;
-    if (y < 0) y = 0;
-    if (x + width > screenWidth) x = Math.max(0, screenWidth - width);
-    if (y + height > screenHeight) y = Math.max(0, screenHeight - height);
-    if (width > screenWidth) width = screenWidth;
-    if (height > screenHeight) height = screenHeight;
-
+    width = Math.min(Math.max(width, 100), wa.width);
+    height = Math.min(Math.max(height, 100), wa.height);
+    x = Math.min(Math.max(x, wa.x), wa.x + wa.width - width);
+    y = Math.min(Math.max(y, wa.y), wa.y + wa.height - height);
     return { x, y, width, height };
   }
 
@@ -201,11 +174,19 @@ export class WindowManager {
     });
 
     window.webContents.setWindowOpenHandler(({ url }) => {
-      shell.openExternal(url);
+      if (/^https?:\/\//i.test(url)) {
+        shell.openExternal(url).catch(() => {});
+      } else {
+        logService.warn('Blocked opening non-http(s) URL externally', {
+          frameId: config.id,
+          url
+        });
+      }
       return { action: 'deny' };
     });
 
-    window.webContents.on('did-fail-load', (_event, errorCode, errorDescription) => {
+    window.webContents.on('did-fail-load', (_event, errorCode, errorDescription, _validatedURL, isMainFrame) => {
+      if (!isMainFrame) return;
       logService.error('Page load failed', {
         frameId: config.id,
         errorCode,
@@ -214,13 +195,33 @@ export class WindowManager {
       this.loadErrorPage(window, config.id, config.url, errorDescription);
     });
 
+    window.webContents.on('render-process-gone', (_event, details) => {
+      logService.error('Renderer process gone', {
+        frameId: config.id,
+        reason: details.reason,
+        exitCode: details.exitCode,
+      });
+      if (details.reason === 'clean-exit') return;
+
+      const count = (this.reloadCounts.get(config.id) ?? 0) + 1;
+      this.reloadCounts.set(config.id, count);
+
+      if (details.reason !== 'oom' && count <= 2) {
+        window.webContents.reload();
+      } else {
+        this.reloadCounts.delete(config.id);
+        this.loadErrorPage(window, config.id, config.url, `Renderer crashed (${details.reason})`);
+      }
+    });
+
     window.webContents.on('did-finish-load', () => {
+      this.reloadCounts.delete(config.id);
       this.injectDragHandle(window, config);
     });
 
     window.on('close', (event) => {
-      if (this.isQuitting) {
-        // Allow closing during app shutdown
+      if (this.isQuitting || this.intentionalClosing.has(config.id)) {
+        // Allow closing during app shutdown or intentional removal
         return;
       }
       event.preventDefault();
@@ -240,6 +241,7 @@ export class WindowManager {
 
     window.on('closed', () => {
       this.frameWindows.delete(config.id);
+      this.intentionalClosing.delete(config.id);
       snapManager.unregisterWindow(config.id);
     });
 
@@ -364,51 +366,45 @@ export class WindowManager {
       }
     `;
 
-    // Check if the frame is already snapped to set initial button state
     const isInitiallySnapped = config.snappedTo && config.snappedTo.length > 0;
-    const initialButtonDisplay = isInitiallySnapped ? 'inline-block' : 'none';
 
     const js = `
       (function() {
         if (document.getElementById('sdframe-drag-handle')) return;
         const handle = document.createElement('div');
         handle.id = 'sdframe-drag-handle';
-        const displayName = '${config.name || config.id.slice(0, 8)}';
-        handle.innerHTML = '<span class="frame-id">' + displayName + '</span><button class="unsnap-btn" id="sdframe-unsnap">Unsnap</button><button class="menu-btn" id="sdframe-menu-btn" title="Click for menu">⋮</button>';
+        const frameIdSpan = document.createElement('span');
+        frameIdSpan.className = 'frame-id';
+        frameIdSpan.textContent = ${JSON.stringify(config.name ?? config.id.slice(0, 8))};
+        const unsnapBtn = document.createElement('button');
+        unsnapBtn.className = 'unsnap-btn';
+        unsnapBtn.id = 'sdframe-unsnap';
+        unsnapBtn.textContent = 'Unsnap';
+        const menuBtn = document.createElement('button');
+        menuBtn.className = 'menu-btn';
+        menuBtn.id = 'sdframe-menu-btn';
+        menuBtn.textContent = '⋮';
+        menuBtn.title = 'Click for menu';
+        handle.appendChild(frameIdSpan);
+        handle.appendChild(unsnapBtn);
+        handle.appendChild(menuBtn);
         document.body.insertBefore(handle, document.body.firstChild);
 
-        // Set initial unsnap button state based on current snap status
-        const unsnapBtn = document.getElementById('sdframe-unsnap');
-        if (unsnapBtn) {
-          unsnapBtn.style.display = '${initialButtonDisplay}';
-        }
+        unsnapBtn.style.display = ${isInitiallySnapped ? "'inline-block'" : "'none'"};
 
-        document.getElementById('sdframe-unsnap').addEventListener('click', function() {
-          if (window.sdFrame && window.sdFrame.ipc) {
-            window.sdFrame.ipc.invoke(window.sdFrame.channels.FRAME_UNSNAP, { id: '${config.id}' });
-          }
-        });
+        if (window.sdFrame) {
+          unsnapBtn.addEventListener('click', function() {
+            window.sdFrame.frame.unsnap({ id: ${JSON.stringify(config.id)}, all: true });
+          });
 
-        // Add click event listener to show tray menu on left-click
-        const menuBtn = document.getElementById('sdframe-menu-btn');
-        if (menuBtn) {
           menuBtn.addEventListener('click', function(event) {
             event.preventDefault();
             event.stopPropagation();
-            // Use cursor position for menu placement (like right-click did)
-            if (window.sdFrame && window.sdFrame.ipc) {
-              window.sdFrame.ipc.invoke('tray:show-menu', { x: event.clientX, y: event.clientY });
-            }
+            window.sdFrame.tray.showMenu(event.screenX, event.screenY);
           });
-        }
 
-        // Listen for snap status changes via IPC
-        if (window.sdFrame && window.sdFrame.ipc) {
-          window.sdFrame.ipc.on('${IPC_CHANNELS.FRAME_SNAP_STATUS_CHANGED}', function(data) {
-            const unsnapBtn = document.getElementById('sdframe-unsnap');
-            if (unsnapBtn) {
-              unsnapBtn.style.display = data.isSnapped ? 'inline-block' : 'none';
-            }
+          window.sdFrame.on.snapStatusChanged(function(data) {
+            unsnapBtn.style.display = data.isSnapped ? 'inline-block' : 'none';
           });
         }
       })();
@@ -429,7 +425,7 @@ export class WindowManager {
       (function() {
         const frameIdSpan = document.querySelector('#sdframe-drag-handle .frame-id');
         if (frameIdSpan) {
-          frameIdSpan.textContent = '${displayName}';
+          frameIdSpan.textContent = ${JSON.stringify(displayName)};
         }
       })();
     `;
@@ -549,6 +545,7 @@ export class WindowManager {
     if (choice === 0) {
       // User confirmed removal
       if (window) {
+        this.intentionalClosing.add(id);
         window.close();
       }
       this.releaseColor(config.color);
@@ -640,76 +637,33 @@ export class WindowManager {
   }
 
   unsnapFrame(id: string, options?: { edge?: SnapEdge; all?: boolean }): void {
-    const window = this.frameWindows.get(id);
-    if (!window) return;
-
     const { edge, all } = options || {};
-
     logService.info('Frame unsnap initiated', { id, edge, all });
-    snapManager.suppressSnapping = true;
 
-    const bounds = window.getBounds();
-    const config = configService.get();
-    const threshold = config.snapThreshold;
+    if (all || !edge) {
+      snapManager.removeAllSnapConnectionsForFrame(id);
+      return;
+    }
 
-    // Use a larger offset to guarantee snap break
-    const offset = threshold * 2 + 10;
+    const frame = configService.getFrame(id);
+    if (!frame) return;
 
-    // Calculate new bounds to break snap
-    const newBounds = {
-      ...bounds,
-      x: bounds.x + (edge === 'left' ? -offset : edge === 'right' ? offset : offset),
-      y: bounds.y + (edge === 'top' ? -offset : edge === 'bottom' ? offset : 0),
-    };
+    const affectedTargets = frame.snappedTo
+      .filter(t => t.edge === edge || t.edge === 'unknown')
+      .map(t => t.frameId);
 
-    // Use a one-time event listener to detect when move completes
-    const onMoveComplete = () => {
-      window.removeListener('move', onMoveComplete);
+    if (affectedTargets.length === 0) {
+      snapManager.notifySnapStatus(id);
+      return;
+    }
 
-      // Remove snap connections
-      if (all || !edge) {
-        // Unsnap from all connections
-        snapManager.removeAllSnapConnectionsForFrame(id);
-      } else {
-        // Unsnap from specific edge
-        const frame = configService.getFrame(id);
-        if (frame) {
-          frame.snappedTo.forEach(target => {
-            if (target.edge === edge) {
-              snapManager.removeSnapConnection(id, target.frameId, edge);
-            }
-          });
-          // Notify about snap status change if no more connections
-          if (frame.snappedTo.filter(s => s.edge !== edge).length === 0) {
-            window.webContents.send(IPC_CHANNELS.FRAME_SNAP_STATUS_CHANGED, {
-              isSnapped: false,
-            });
-          }
-        }
-      }
+    affectedTargets.forEach(targetId => {
+      snapManager.removeSnapConnection(id, targetId, edge);
+      snapManager.removeSnapConnection(targetId, id, snapManager.getOppositeEdge(edge));
+    });
 
-      // Set up a one-time moved event listener to re-enable snapping after the move back completes
-      const onMovedComplete = () => {
-        window.removeListener('moved', onMovedComplete);
-
-        // Recalculate connections for remaining group members
-        const group = snapManager.getGroup(id);
-        group.forEach(groupId => {
-          snapManager.updateSnapConnections(groupId);
-        });
-
-        snapManager.suppressSnapping = false;
-        logService.info('Frame unsnapped', { id, edge, all, groupSize: group.length });
-      };
-
-      window.on('moved', onMovedComplete);
-
-      // Move back to original position
-      window.setBounds(bounds);
-    };
-
-    window.on('move', onMoveComplete);
-    window.setBounds(newBounds);
+    snapManager.notifySnapStatus(id);
+    affectedTargets.forEach(targetId => snapManager.notifySnapStatus(targetId));
   }
 
   async restoreFrames(): Promise<void> {
@@ -776,22 +730,12 @@ export class WindowManager {
         contextIsolation: true,
         sandbox: true,
         preload: path.join(__dirname, 'preload.js'),
+        additionalArguments: ['--sdframe-settings'],
       },
     });
 
     const settingsPath = path.join(__dirname, '..', 'renderer', 'settings', 'index.html');
     this.settingsWindow.loadFile(settingsPath);
-
-    this.settingsWindow.webContents.session.webRequest.onHeadersReceived((details, callback) => {
-      callback({
-        responseHeaders: {
-          ...details.responseHeaders,
-          'Content-Security-Policy': [
-            "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:;"
-          ],
-        },
-      });
-    });
 
     this.settingsWindow.on('closed', () => {
       this.settingsWindow = null;
@@ -807,6 +751,9 @@ export class WindowManager {
   }
 
   closeAllFrames(): void {
+    this.frameWindows.forEach((_window, id) => {
+      this.intentionalClosing.add(id);
+    });
     for (const window of this.frameWindows.values()) {
       window.close();
     }
@@ -815,6 +762,7 @@ export class WindowManager {
 
   prepareQuit(): void {
     this.isQuitting = true;
+    this.intentionalClosing.clear();
     // Close all windows (they will now be allowed to close)
     for (const window of this.frameWindows.values()) {
       if (!window.isDestroyed()) {
@@ -846,6 +794,31 @@ export class WindowManager {
 
   getFrameWindows(): Map<string, BrowserWindow> {
     return this.frameWindows;
+  }
+
+  getFrameIdByWebContentsId(webContentsId: number): string | undefined {
+    for (const [id, window] of this.frameWindows) {
+      if (!window.isDestroyed() && window.webContents.id === webContentsId) {
+        return id;
+      }
+    }
+    return undefined;
+  }
+
+  isSettingsSender(webContentsId: number): boolean {
+    return Boolean(
+      this.settingsWindow &&
+        !this.settingsWindow.isDestroyed() &&
+        this.settingsWindow.webContents.id === webContentsId
+    );
+  }
+
+  isKnownFrameSender(webContentsId: number, frameId?: string): boolean {
+    for (const [id, window] of this.frameWindows) {
+      if (window.isDestroyed() || window.webContents.id !== webContentsId) continue;
+      return frameId === undefined || frameId === id;
+    }
+    return false;
   }
 }
 

@@ -13,13 +13,6 @@ export interface SnapTarget {
   distance?: number;
 }
 
-export interface SnapConnection {
-  frameA: string;
-  frameB: string;
-  edgeA: SnapEdge;
-  edgeB: SnapEdge;
-}
-
 export interface FrameConfig {
   id: string;
   name?: string;

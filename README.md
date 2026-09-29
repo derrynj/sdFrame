@@ -66,8 +66,12 @@ src/
 - `nodeIntegration: false`
 - `contextIsolation: true`
 - `sandbox: true`
+- Preload exposes only specific, allowlisted IPC methods — no generic channel passthrough
+- Remote pages get a minimal API subset (unsnap, tray menu, snap status); full API only on local pages
 - Navigation restricted to configured origin
-- Popups blocked (open externally instead)
+- Popups blocked; only `http(s)` URLs open externally
+- All permission requests (geolocation, notifications, etc.) denied
+- Frame URLs restricted to `http`/`https`
 - CSP enforced for settings UI
 
 ## Logging

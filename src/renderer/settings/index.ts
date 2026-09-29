@@ -25,10 +25,39 @@ interface AppConfig {
   snapThreshold: number;
   groupMovementEnabled: boolean;
   layoutLocked: boolean;
+  alwaysOnTop: boolean;
   logLevel: 'debug' | 'info' | 'warn' | 'error';
   frameSize: FrameSizeSettings;
   frames: FrameConfig[];
 }
+
+// The settings window is the only context guaranteed to receive the full API.
+type SdFrameFullApi = {
+  frame: {
+    add: (p: { name?: string; url: string; bounds?: Partial<FrameConfig['bounds']> }) => Promise<{ success: boolean; error?: string }>;
+    update: (p: { id: string; config: Record<string, unknown> }) => Promise<{ success: boolean; error?: string }>;
+    remove: (p: { id: string }) => Promise<{ success: boolean; error?: string }>;
+    focus: (p: { id: string }) => Promise<{ success: boolean; error?: string }>;
+    resetLayout: (p: { id?: string }) => Promise<{ success: boolean; error?: string }>;
+    getAll: () => Promise<{ success: boolean; frames?: FrameConfig[] }>;
+    unsnap: (p: { id: string; edge?: string; all?: boolean }) => Promise<{ success: boolean; error?: string }>;
+    enableAll: () => Promise<{ success: boolean }>;
+    disableAll: () => Promise<{ success: boolean }>;
+  };
+  config: {
+    get: () => Promise<{ success: boolean; config?: AppConfig }>;
+    set: (p: { key: string; value: unknown }) => Promise<{ success: boolean; error?: string }>;
+  };
+  page: {
+    retry: (frameId: string) => Promise<{ success: boolean; error?: string }>;
+  };
+  app: {
+    quit: () => Promise<{ success: boolean }>;
+  };
+  getQueryParams: () => Record<string, string>;
+};
+
+const sdFrame = window.sdFrame as unknown as SdFrameFullApi;
 
 const elements = {
   addFrameForm: document.getElementById('add-frame-form') as HTMLFormElement,
@@ -50,7 +79,7 @@ const elements = {
 };
 
 async function loadConfig(): Promise<void> {
-  const response = await window.sdFrame.config.get();
+  const response = await sdFrame.config.get();
   if (response && response.success && response.config) {
     const config = response.config;
     elements.snapEnabled.checked = config.snapEnabled;
@@ -65,7 +94,7 @@ async function loadConfig(): Promise<void> {
 }
 
 async function loadFrames(): Promise<void> {
-  const response = await window.sdFrame.frame.getAll();
+  const response = await sdFrame.frame.getAll();
   if (response && response.success && response.frames) {
     renderFrames(response.frames as FrameConfig[]);
   }
@@ -124,9 +153,7 @@ function renderFrames(frames: FrameConfig[]): void {
 }
 
 function escapeHtml(str: string): string {
-  const div = document.createElement('div');
-  div.textContent = str;
-  return div.innerHTML;
+  return str.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] as string));
 }
 
 function attachFrameListeners(): void {
@@ -134,7 +161,7 @@ function attachFrameListeners(): void {
     btn.addEventListener('click', async (e) => {
       const id = (e.target as HTMLElement).dataset.id;
       if (id) {
-        await window.sdFrame.frame.focus({ id });
+        await sdFrame.frame.focus({ id });
       }
     });
   });
@@ -143,11 +170,11 @@ function attachFrameListeners(): void {
     btn.addEventListener('click', async (e) => {
       const id = (e.target as HTMLElement).dataset.id;
       if (id) {
-        const response = await window.sdFrame.frame.getAll();
+        const response = await sdFrame.frame.getAll();
         if (response && response.success && response.frames) {
           const frame = (response.frames as FrameConfig[]).find(f => f.id === id);
           if (frame) {
-            await window.sdFrame.frame.update({ id, config: { enabled: !frame.enabled } });
+            await sdFrame.frame.update({ id, config: { enabled: !frame.enabled } });
             await loadFrames();
           }
         }
@@ -159,7 +186,7 @@ function attachFrameListeners(): void {
     btn.addEventListener('click', async (e) => {
       const id = (e.target as HTMLElement).dataset.id;
       if (id) {
-        await window.sdFrame.frame.unsnap({ id, all: true });
+        await sdFrame.frame.unsnap({ id, all: true });
         await loadFrames();
       }
     });
@@ -196,7 +223,7 @@ function attachFrameListeners(): void {
           }
           
           // Fetch current frame config to merge bounds values
-          const currentFramesResponse = await window.sdFrame.frame.getAll();
+          const currentFramesResponse = await sdFrame.frame.getAll();
           let currentBounds = { x: 0, y: 0, width: 800, height: 600 };
           
           if (currentFramesResponse && currentFramesResponse.success && currentFramesResponse.frames) {
@@ -233,7 +260,7 @@ function attachFrameListeners(): void {
             }
           }
           
-          await window.sdFrame.frame.update({ id, config });
+          await sdFrame.frame.update({ id, config });
           await loadFrames();
         }
       }
@@ -256,7 +283,7 @@ function attachFrameListeners(): void {
     btn.addEventListener('click', async (e) => {
       const id = (e.target as HTMLElement).dataset.id;
       if (id) {
-        await window.sdFrame.frame.remove({ id });
+        await sdFrame.frame.remove({ id });
         await loadFrames();
       }
     });
@@ -273,7 +300,7 @@ elements.addFrameForm.addEventListener('submit', async (e) => {
       if (name) {
         payload.name = name;
       }
-      const result = await window.sdFrame.frame.add(payload);
+      const result = await sdFrame.frame.add(payload);
       console.log('Add frame result:', result);
       if (result && !result.success) {
         alert('Failed to add frame: ' + result.error);
@@ -289,40 +316,40 @@ elements.addFrameForm.addEventListener('submit', async (e) => {
 });
 
 elements.snapEnabled.addEventListener('change', async () => {
-  await window.sdFrame.config.set({ key: 'snapEnabled', value: elements.snapEnabled.checked });
+  await sdFrame.config.set({ key: 'snapEnabled', value: elements.snapEnabled.checked });
 });
 
 elements.groupMovement.addEventListener('change', async () => {
-  await window.sdFrame.config.set({ key: 'groupMovementEnabled', value: elements.groupMovement.checked });
+  await sdFrame.config.set({ key: 'groupMovementEnabled', value: elements.groupMovement.checked });
 });
 
 elements.snapThreshold.addEventListener('change', async () => {
-  await window.sdFrame.config.set({ key: 'snapThreshold', value: parseInt(elements.snapThreshold.value, 10) });
+  await sdFrame.config.set({ key: 'snapThreshold', value: parseInt(elements.snapThreshold.value, 10) });
 });
 
 elements.layoutLocked.addEventListener('change', async () => {
-  await window.sdFrame.config.set({ key: 'layoutLocked', value: elements.layoutLocked.checked });
+  await sdFrame.config.set({ key: 'layoutLocked', value: elements.layoutLocked.checked });
 });
 
 elements.alwaysOnTop.addEventListener('change', async () => {
-  await window.sdFrame.config.set({ key: 'alwaysOnTop', value: elements.alwaysOnTop.checked });
+  await sdFrame.config.set({ key: 'alwaysOnTop', value: elements.alwaysOnTop.checked });
 });
 
 elements.logLevel.addEventListener('change', async () => {
   const value = elements.logLevel.value as 'debug' | 'info' | 'warn' | 'error';
-  await window.sdFrame.config.set({ key: 'logLevel', value });
+  await sdFrame.config.set({ key: 'logLevel', value });
 });
 
 elements.frameWidth.addEventListener('change', async () => {
   const width = parseInt(elements.frameWidth.value, 10);
   if (width >= 100 && width <= 5000) {
-    const response = await window.sdFrame.config.get();
+    const response = await sdFrame.config.get();
     if (response && response.success && response.config) {
       const newFrameSize = {
         width,
         height: response.config.frameSize.height,
       };
-      await window.sdFrame.config.set({ key: 'frameSize', value: newFrameSize });
+      await sdFrame.config.set({ key: 'frameSize', value: newFrameSize });
     }
   }
 });
@@ -330,13 +357,13 @@ elements.frameWidth.addEventListener('change', async () => {
 elements.frameHeight.addEventListener('change', async () => {
   const height = parseInt(elements.frameHeight.value, 10);
   if (height >= 100 && height <= 5000) {
-    const response = await window.sdFrame.config.get();
+    const response = await sdFrame.config.get();
     if (response && response.success && response.config) {
       const newFrameSize = {
         width: response.config.frameSize.width,
         height,
       };
-      await window.sdFrame.config.set({ key: 'frameSize', value: newFrameSize });
+      await sdFrame.config.set({ key: 'frameSize', value: newFrameSize });
     }
   }
 });
@@ -349,22 +376,22 @@ elements.resetDimensionsBtn.addEventListener('click', async () => {
     width: Math.floor(screenWidth / 4),
     height: Math.floor(screenHeight / 4),
   };
-  await window.sdFrame.config.set({ key: 'frameSize', value: newFrameSize });
+  await sdFrame.config.set({ key: 'frameSize', value: newFrameSize });
   elements.frameWidth.value = String(newFrameSize.width);
   elements.frameHeight.value = String(newFrameSize.height);
 });
 
 elements.resetAllBtn.addEventListener('click', async () => {
-  await window.sdFrame.frame.resetLayout({});
+  await sdFrame.frame.resetLayout({});
 });
 
 elements.enableAllBtn.addEventListener('click', async () => {
-  await window.sdFrame.frame.enableAll();
+  await sdFrame.frame.enableAll();
   await loadFrames();
 });
 
 elements.disableAllBtn.addEventListener('click', async () => {
-  await window.sdFrame.frame.disableAll();
+  await sdFrame.frame.disableAll();
   await loadFrames();
 });
 

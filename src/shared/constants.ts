@@ -41,13 +41,10 @@ export const LOG_FILE_NAME = 'sdframe.log';
 export const LOG_MAX_SIZE_BYTES = 1024 * 1024; // 1MB
 
 export const FOCUS_BORDER_WIDTH = 2;
-export const FOCUS_FADE_DELAY_MS = 150;
 
-// IMPORTANT: IPC_CHANNELS is duplicated in src/main/preload.ts
-// This is necessary because the preload script runs in a sandboxed context
-// and cannot import external modules. See docs/preload-script-duplication.md
-// for details on why this duplication exists and how to maintain it.
-// When modifying IPC_CHANNELS, you MUST update both files to keep them in sync.
+// IPC_CHANNELS is shared directly: src/main/preload.ts imports it from here.
+// The preload is bundled by scripts/bundle-preload.js (esbuild) so it can be
+// loaded in Electron's sandboxed context. See docs/preload-script-duplication.md.
 export const IPC_CHANNELS = {
   FRAME_ADD: 'frame:add',
   FRAME_UPDATE: 'frame:update',

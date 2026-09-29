@@ -1,4 +1,4 @@
-import { app, screen } from 'electron';
+import { app, screen, session } from 'electron';
 import { windowManager } from './window-manager';
 import { trayManager } from './tray-manager';
 import { configService } from '../services/config-service';
@@ -18,8 +18,16 @@ if (!gotTheLock) {
   app.whenReady().then(async () => {
     logService.initialize();
     configService.initialize();
+    windowManager.loadExistingColors();
     logService.info('Application starting');
-    
+
+    session.defaultSession.setPermissionRequestHandler((_webContents, _permission, callback) => {
+      callback(false);
+    });
+    session.defaultSession.setPermissionCheckHandler((_webContents, _permission, requestingOrigin) => {
+      return requestingOrigin === 'file://';
+    });
+
     registerIPCHandlers();
     trayManager.initialize();
 
@@ -53,12 +61,27 @@ if (!gotTheLock) {
     // Keep app running in tray even when all windows are closed
   });
 
-  app.on('before-quit', async () => {
-    logService.info('Application quitting');
-    windowManager.prepareQuit();
-    configService.saveSync();
-    trayManager.destroy();
-    await logService.close();
+  let isCleaningUp = false;
+  app.on('before-quit', (event) => {
+    if (isCleaningUp) return;
+    isCleaningUp = true;
+    event.preventDefault();
+
+    void (async () => {
+      try {
+        logService.info('Application quitting');
+        windowManager.prepareQuit();
+        configService.saveSync();
+        trayManager.destroy();
+        await logService.close();
+      } catch (error) {
+        logService.error('Error during quit cleanup', {
+          error: error instanceof Error ? error.message : String(error)
+        });
+      } finally {
+        app.exit(0);
+      }
+    })();
   });
 
   app.on('activate', () => {

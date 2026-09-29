@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { app, screen } from 'electron';
-import { AppConfigSchema } from '../shared/schemas';
+import { AppConfigSchema, isHttpUrl } from '../shared/schemas';
 import type { AppConfig, FrameConfig, SnapTarget, FrameSizeSettings } from '../shared/types';
 import { CONFIG_FILE_NAME, DEFAULT_CONFIG } from '../shared/constants';
 import { logService } from './log-service';
@@ -52,12 +52,10 @@ function migrateSnappedTo(snappedTo: string[] | SnapTarget[]): SnapTarget[] {
  * Checks if config needs migration and migrates if necessary.
  */
 function migrateConfig(config: any): AppConfig {
-  let needsMigration = false;
   let migratedConfig: any = { ...config };
   
   // Migrate frameSize if not present
   if (!migratedConfig.frameSize) {
-    needsMigration = true;
     logService.info('Migrating config to add frameSize setting');
     migratedConfig.frameSize = getDefaultFrameSize();
   }
@@ -65,7 +63,6 @@ function migrateConfig(config: any): AppConfig {
   const migratedFrames = migratedConfig.frames.map((frame: any) => {
     // Migrate snappedTo format if needed
     if (frame.snappedTo && frame.snappedTo.length > 0 && typeof frame.snappedTo[0] === 'string') {
-      needsMigration = true;
       return {
         ...frame,
         snappedTo: migrateSnappedTo(frame.snappedTo),
@@ -78,7 +75,34 @@ function migrateConfig(config: any): AppConfig {
     logService.info('Migrated config from string[] to SnapTarget[] format');
     migratedConfig.frames = migratedFrames;
   }
-  
+
+  // Drop frames with non-http(s) URLs rather than failing the whole parse
+  // (a single legacy file:// frame should not nuke the entire config).
+  if (Array.isArray(migratedConfig.frames)) {
+    const droppedIds = new Set<string>();
+    const before = migratedConfig.frames.length;
+    migratedConfig.frames = migratedConfig.frames.filter((frame: any) => {
+      if (frame && typeof frame.url === 'string' && !isHttpUrl(frame.url)) {
+        logService.warn('Dropping frame with non-http(s) URL', { id: frame.id, url: frame.url });
+        if (frame.id) droppedIds.add(frame.id);
+        return false;
+      }
+      return true;
+    });
+    if (migratedConfig.frames.length !== before) {
+      // Prune dangling snappedTo references to dropped frames
+      migratedConfig.frames = migratedConfig.frames.map((frame: any) => {
+        if (frame && Array.isArray(frame.snappedTo) && droppedIds.size > 0) {
+          const filtered = frame.snappedTo.filter((t: any) => t && !droppedIds.has(t.frameId));
+          if (filtered.length !== frame.snappedTo.length) {
+            return { ...frame, snappedTo: filtered };
+          }
+        }
+        return frame;
+      });
+    }
+  }
+
   return AppConfigSchema.parse(migratedConfig);
 }
 
@@ -109,6 +133,7 @@ class ConfigService {
         
         // Save migrated config immediately
         if (JSON.stringify(parsed) !== JSON.stringify(migrated)) {
+          this.backupBeforeMigrate();
           this.config = validated;
           this.saveImmediate();
         }
@@ -140,12 +165,33 @@ class ConfigService {
       logService.error('Failed to load config, using defaults', {
         error: error instanceof Error ? error.message : String(error)
       });
+      try {
+        const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+        const backupPath = `${this.configPath}.corrupt-${stamp}`;
+        fs.copyFileSync(this.configPath, backupPath);
+        logService.warn('Backed up corrupt config file', { backupPath });
+      } catch {
+        // Backup failed, nothing more we can do
+      }
     }
     // Initialize frameSize with default values
     return {
       ...DEFAULT_CONFIG,
       frameSize: getDefaultFrameSize(),
     };
+  }
+
+  private backupBeforeMigrate(): void {
+    try {
+      const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+      const backupPath = `${this.configPath}.migrate-${stamp}`;
+      fs.copyFileSync(this.configPath, backupPath);
+      logService.info('Backed up config before migration', { backupPath });
+    } catch (error) {
+      logService.warn('Failed to back up config before migration', {
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
   }
 
   private saveImmediate(): void {
@@ -182,7 +228,7 @@ class ConfigService {
   }
 
   get(): AppConfig {
-    return { ...this.config };
+    return structuredClone(this.config);
   }
 
   set<K extends keyof AppConfig>(key: K, value: AppConfig[K]): void {
@@ -195,11 +241,38 @@ class ConfigService {
   }
 
   getFrames(): FrameConfig[] {
-    return [...this.config.frames];
+    return structuredClone(this.config.frames);
   }
 
   getFrame(id: string): FrameConfig | undefined {
+    const found = this.config.frames.find(f => f.id === id);
+    return found ? structuredClone(found) : undefined;
+  }
+
+  // Read-only references for internal hot paths (snap/geometry). Callers MUST
+  // NOT mutate these; mutation goes through updateFrame/updateSnappedTo only.
+  getFramesRef(): FrameConfig[] {
+    return this.config.frames;
+  }
+
+  getFrameRef(id: string): FrameConfig | undefined {
     return this.config.frames.find(f => f.id === id);
+  }
+
+  getSnapThreshold(): number {
+    return this.config.snapThreshold;
+  }
+
+  isLayoutLocked(): boolean {
+    return this.config.layoutLocked;
+  }
+
+  isGroupMovementEnabled(): boolean {
+    return this.config.groupMovementEnabled;
+  }
+
+  isSnappingEnabled(): boolean {
+    return this.config.snapEnabled;
   }
 
   addFrame(frame: FrameConfig): void {

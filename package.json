@@ -5,9 +5,12 @@
   "main": "dist/main/index.js",
   "scripts": {
     "copy-assets": "node scripts/copy-assets.js",
-    "build": "tsc && npm run copy-assets",
+    "make-ico": "node scripts/make-ico.js",
+    "bundle-preload": "node scripts/bundle-preload.js",
+    "build": "tsc && npm run bundle-preload && npm run copy-assets",
+    "typecheck": "tsc --noEmit",
     "start": "npm run build && electron .",
-    "dev": "tsc && npm run copy-assets && electron .",
+    "dev": "npm run build && electron .",
     "pack": "npm run build && electron-builder --dir",
     "dist": "npm run build && electron-builder",
     "dist:signed": "node scripts/dist-with-signing.js"
@@ -15,9 +18,10 @@
   "author": "",
   "license": "MIT",
   "devDependencies": {
-    "@types/node": "^20.10.0",
+    "@types/node": "^22.20.4",
     "electron": "^40.1.0",
     "electron-builder": "^26.7.0",
+    "esbuild": "^0.28.2",
     "typescript": "^5.3.0"
   },
   "dependencies": {
@@ -42,7 +46,7 @@
     ],
     "win": {
       "target": "portable",
-      "icon": "assets/icon.png"
+      "icon": "assets/icon.ico"
     },
     "mac": {
       "target": "dir",

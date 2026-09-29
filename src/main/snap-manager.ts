@@ -1,5 +1,6 @@
+import { screen } from 'electron';
 import type { BrowserWindow } from 'electron';
-import type { Bounds, FrameConfig, SnapTarget, SnapEdge } from '../shared/types';
+import type { Bounds, SnapEdge } from '../shared/types';
 import { configService } from '../services/config-service';
 import { logService } from '../services/log-service';
 
@@ -71,7 +72,7 @@ export class SnapManager {
 
     window.on('will-move', () => {
       if (this.groupMoveInProgress) return;
-      if (configService.get().layoutLocked) return;
+      if (configService.isLayoutLocked()) return;
 
       moveStartBounds = window.getBounds();
       this.isDragging = true;
@@ -88,10 +89,9 @@ export class SnapManager {
     window.on('move', () => {
       if (this.groupMoveInProgress) return;
       if (!this.isDragging) return;
-      if (configService.get().layoutLocked) return;
+      if (configService.isLayoutLocked()) return;
 
-      const config = configService.get();
-      if (!config.groupMovementEnabled) return;
+      if (!configService.isGroupMovementEnabled()) return;
 
       const group = this.getGroup(id);
       if (group.length <= 1) return;
@@ -125,12 +125,11 @@ export class SnapManager {
       if (this.groupMoveInProgress) return;
       this.isDragging = false;
 
-      const config = configService.get();
-      if (config.layoutLocked) return;
+      if (configService.isLayoutLocked()) return;
 
       const wasSnapped = this.isFrameSnapped(id);
 
-      if (config.snapEnabled) {
+      if (configService.isSnappingEnabled()) {
         this.applySnapping(id);
       }
 
@@ -179,7 +178,7 @@ export class SnapManager {
     });
 
     window.on('resized', () => {
-      if (configService.get().layoutLocked) return;
+      if (configService.isLayoutLocked()) return;
 
       const currentBounds = window.getBounds();
       const previousBounds = this.previousBounds.get(id);
@@ -207,8 +206,7 @@ export class SnapManager {
     // Skip snapping if suppressed (e.g., during unsnap operation)
     if (this.suppressSnapping) return;
 
-    const config = configService.get();
-    const threshold = config.snapThreshold;
+    const threshold = configService.getSnapThreshold();
     const bounds = window.getBounds();
     const edges = this.getEdges(id, bounds);
 
@@ -360,7 +358,7 @@ export class SnapManager {
   /**
    * Gets the opposite edge for a bidirectional snap connection.
    */
-  private getOppositeEdge(edge: SnapEdge): SnapEdge {
+  getOppositeEdge(edge: SnapEdge): SnapEdge {
     switch (edge) {
       case 'left': return 'right';
       case 'right': return 'left';
@@ -411,57 +409,86 @@ export class SnapManager {
   }
 
   /**
-   * Detects snap information between two windows.
-   * Returns the edge and distance if snapped, null otherwise.
+   * Detects snap relations between two windows, covering both hard edge
+   * snaps and alignment snaps using criteria that match applySnapping.
    */
-  private detectSnap(bounds1: Bounds, bounds2: Bounds, threshold: number): {
-    edge: SnapEdge;
-    distance: number;
-  } | null {
-    const verticalOverlap = bounds1.y < bounds2.y + bounds2.height && bounds1.y + bounds1.height > bounds2.y;
-    const horizontalOverlap = bounds1.x < bounds2.x + bounds2.width && bounds1.x + bounds1.width > bounds2.x;
+  private detectRelations(bounds: Bounds, otherBounds: Bounds, threshold: number): SnapEdge[] {
+    const relations: SnapEdge[] = [];
+    const myEdges = this.getEdges('self', bounds);
+    const otherEdges = this.getEdges('other', otherBounds);
 
-    const checks: { edge: SnapEdge; distance: number; overlap: boolean }[] = [
-      { edge: 'left', distance: Math.abs(bounds1.x + bounds1.width - bounds2.x), overlap: verticalOverlap },
-      { edge: 'right', distance: Math.abs(bounds2.x + bounds2.width - bounds1.x), overlap: verticalOverlap },
-      { edge: 'top', distance: Math.abs(bounds1.y + bounds1.height - bounds2.y), overlap: horizontalOverlap },
-      { edge: 'bottom', distance: Math.abs(bounds2.y + bounds2.height - bounds1.y), overlap: horizontalOverlap },
-    ];
-
-    for (const check of checks) {
-      if (check.distance <= threshold && check.overlap) {
-        return { edge: check.edge, distance: check.distance };
+    for (const edge of myEdges) {
+      for (const otherEdge of otherEdges) {
+        if (!this.edgesCanSnap(edge.edge, otherEdge.edge)) continue;
+        if (!this.edgesOverlap(edge, otherEdge)) continue;
+        if (Math.abs(otherEdge.position - edge.position) <= threshold) {
+          relations.push(edge.edge);
+        }
       }
     }
 
-    return null;
+    const horizontalOverlap = bounds.x < otherBounds.x + otherBounds.width && bounds.x + bounds.width > otherBounds.x;
+    const verticalOverlap = bounds.y < otherBounds.y + otherBounds.height && bounds.y + bounds.height > otherBounds.y;
+
+    if (horizontalOverlap) {
+      if (Math.abs(otherBounds.y - bounds.y) <= threshold) relations.push('align-top');
+      if (Math.abs(otherBounds.y + otherBounds.height - (bounds.y + bounds.height)) <= threshold) relations.push('align-bottom');
+    }
+    if (verticalOverlap) {
+      if (Math.abs(otherBounds.x - bounds.x) <= threshold) relations.push('align-left');
+      if (Math.abs(otherBounds.x + otherBounds.width - (bounds.x + bounds.width)) <= threshold) relations.push('align-right');
+    }
+
+    return relations;
   }
 
   updateSnapConnections(id: string): void {
     const window = this.windows.get(id);
     if (!window) return;
 
-    const config = configService.get();
-    const threshold = config.snapThreshold;
+    const threshold = configService.getSnapThreshold();
     const bounds = window.getBounds();
-    const snappedTo: SnapTarget[] = [];
 
+    const detected = new Map<string, Set<SnapEdge>>();
     for (const [otherId, otherWindow] of this.windows) {
       if (otherId === id) continue;
-
       const otherBounds = otherWindow.getBounds();
-      const snapInfo = this.detectSnap(bounds, otherBounds, threshold);
-      
-      if (snapInfo) {
-        snappedTo.push({
-          frameId: otherId,
-          edge: snapInfo.edge,
-          distance: snapInfo.distance,
-        });
-      }
+      detected.set(otherId, new Set(this.detectRelations(bounds, otherBounds, threshold)));
     }
 
-    configService.updateSnappedTo(id, snappedTo);
+    const current = configService.getFrame(id)?.snappedTo ?? [];
+    const kept = current.filter(t => {
+      const det = detected.get(t.frameId);
+      // Targets not currently registered (disabled / not-yet-created frames) are
+      // preserved rather than pruned — their geometry hasn't been assessed here.
+      if (det === undefined) return true;
+      return det.has(t.edge) || (t.edge === 'unknown' && det.size > 0);
+    });
+
+    const sameEdges =
+      kept.length === current.length &&
+      kept.every((t, i) => t.frameId === current[i].frameId && t.edge === current[i].edge);
+
+    if (sameEdges) return;
+
+    configService.updateSnappedTo(id, kept);
+
+    // Prune the reverse references on any frame whose connection was dropped
+    const dropped = current.filter(t => {
+      const det = detected.get(t.frameId);
+      if (det === undefined) return false;
+      return !det.has(t.edge) && !(t.edge === 'unknown' && det.size > 0);
+    });
+    for (const t of dropped) {
+      const otherFrame = configService.getFrame(t.frameId);
+      if (!otherFrame) continue;
+      const reverseEdge = this.getOppositeEdge(t.edge);
+      const remaining = otherFrame.snappedTo.filter(s => !(s.frameId === id && s.edge === reverseEdge));
+      if (remaining.length !== otherFrame.snappedTo.length) {
+        configService.updateSnappedTo(t.frameId, remaining);
+        this.notifySnapStatus(t.frameId);
+      }
+    }
   }
 
   /**
@@ -517,7 +544,7 @@ export class SnapManager {
   }
 
   getGroup(id: string): string[] {
-    const frames = configService.getFrames();
+    const frames = configService.getFramesRef();
     const visited = new Set<string>();
     const group: string[] = [];
 
@@ -565,6 +592,12 @@ export class SnapManager {
    * This should be called after frames are restored to ensure
    * group colors are applied immediately.
    */
+  notifySnapStatus(id: string): void {
+    const isSnapped = this.isFrameSnapped(id);
+    const snappedToColor = isSnapped ? this.getSnappedToColor(id) : undefined;
+    this.notifySnapStatusChange(id, isSnapped, snappedToColor);
+  }
+
   notifyAllSnapStatuses(): void {
     for (const id of this.windows.keys()) {
       const isSnapped = this.isFrameSnapped(id);
@@ -575,29 +608,21 @@ export class SnapManager {
   }
 
   handleDisplayChange(): void {
-    const { screen } = require('electron');
-    const primaryDisplay = screen.getPrimaryDisplay();
-    const { width: screenWidth, height: screenHeight } = primaryDisplay.workAreaSize;
-
     for (const [id, window] of this.windows) {
       const bounds = window.getBounds();
+      const display = screen.getDisplayMatching(bounds);
+      const wa = display.workArea;
       let needsUpdate = false;
       const newBounds = { ...bounds };
 
-      if (bounds.x < 0) {
-        newBounds.x = 0;
+      if (newBounds.x < wa.x) { newBounds.x = wa.x; needsUpdate = true; }
+      if (newBounds.y < wa.y) { newBounds.y = wa.y; needsUpdate = true; }
+      if (newBounds.x + newBounds.width > wa.x + wa.width) {
+        newBounds.x = Math.max(wa.x, wa.x + wa.width - newBounds.width);
         needsUpdate = true;
       }
-      if (bounds.y < 0) {
-        newBounds.y = 0;
-        needsUpdate = true;
-      }
-      if (bounds.x + bounds.width > screenWidth) {
-        newBounds.x = Math.max(0, screenWidth - bounds.width);
-        needsUpdate = true;
-      }
-      if (bounds.y + bounds.height > screenHeight) {
-        newBounds.y = Math.max(0, screenHeight - bounds.height);
+      if (newBounds.y + newBounds.height > wa.y + wa.height) {
+        newBounds.y = Math.max(wa.y, wa.y + wa.height - newBounds.height);
         needsUpdate = true;
       }
 

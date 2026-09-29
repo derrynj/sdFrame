@@ -1,6 +1,7 @@
-import { ipcMain } from 'electron';
+import { ipcMain, app } from 'electron';
+import type { IpcMainInvokeEvent } from 'electron';
+import { z } from 'zod';
 import { IPC_CHANNELS } from '../shared/constants';
-import type { FrameUnsnapPayload } from '../shared/types';
 import {
   FrameAddPayloadSchema,
   FrameUpdatePayloadSchema,
@@ -9,206 +10,200 @@ import {
   FrameResetLayoutPayloadSchema,
   ConfigSetPayloadSchema,
   FrameUnsnapPayloadSchema,
+  PageRetryPayloadSchema,
+  TrayShowMenuPayloadSchema,
 } from '../shared/schemas';
 import { windowManager } from './window-manager';
 import { configService } from '../services/config-service';
 import { logService } from '../services/log-service';
 import { trayManager } from './tray-manager';
-import { app } from 'electron';
+
+function assertSettingsSender(event: IpcMainInvokeEvent): boolean {
+  if (windowManager.isSettingsSender(event.sender.id)) {
+    return true;
+  }
+  logService.error('IPC rejected: sender is not the settings window', { channel: event.senderFrame?.url ?? '' });
+  return false;
+}
+
+function isMainFrameSender(event: IpcMainInvokeEvent): boolean {
+  return event.senderFrame === event.sender.mainFrame;
+}
+
+function rejectUnless(allow: boolean, channel: string): { success: false; error: string } | null {
+  if (allow) return null;
+  return { success: false, error: 'This web page is not authorized to perform this action' };
+}
+
+function handleValidatedForFrame<T>(channel: string, schema: z.ZodType<T>, getFrameId: (payload: T) => string, run: (payload: T) => unknown | Promise<unknown>): void {
+  ipcMain.handle(channel, async (event: IpcMainInvokeEvent, payload: unknown) => {
+    try {
+      const validated = schema.parse(payload);
+      const frameId = getFrameId(validated);
+      const denied = rejectUnless(
+        isMainFrameSender(event) &&
+          (windowManager.isSettingsSender(event.sender.id) ||
+            windowManager.isKnownFrameSender(event.sender.id, frameId)),
+        channel
+      );
+      if (denied) return denied;
+      return await run(validated);
+    } catch (error) {
+      logService.error(`IPC ${channel} failed`, {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+    }
+  });
+}
+
+function handleValidatedKnownSender<T>(channel: string, schema: z.ZodType<T>, run: (payload: T) => unknown | Promise<unknown>): void {
+  ipcMain.handle(channel, async (event: IpcMainInvokeEvent, payload: unknown) => {
+    try {
+      const validated = schema.parse(payload);
+      const denied = rejectUnless(
+        isMainFrameSender(event) &&
+          (windowManager.isSettingsSender(event.sender.id) ||
+            windowManager.isKnownFrameSender(event.sender.id)),
+        channel
+      );
+      if (denied) return denied;
+      return await run(validated);
+    } catch (error) {
+      logService.error(`IPC ${channel} failed`, {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+    }
+  });
+}
+
+function handleValidatedForSettings<T>(channel: string, schema: z.ZodType<T>, run: (payload: T) => unknown | Promise<unknown>): void {
+  ipcMain.handle(channel, async (event: IpcMainInvokeEvent, payload: unknown) => {
+    const denied = rejectUnless(assertSettingsSender(event) && isMainFrameSender(event), channel);
+    if (denied) return denied;
+    try {
+      const validated = schema.parse(payload);
+      return await run(validated);
+    } catch (error) {
+      logService.error(`IPC ${channel} failed`, {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+    }
+  });
+}
+
+function handleForSettings(channel: string, run: () => unknown | Promise<unknown>): void {
+  ipcMain.handle(channel, async (event: IpcMainInvokeEvent) => {
+    const denied = rejectUnless(assertSettingsSender(event) && isMainFrameSender(event), channel);
+    if (denied) return denied;
+    try {
+      return await run();
+    } catch (error) {
+      logService.error(`IPC ${channel} failed`, {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+    }
+  });
+}
 
 export function registerIPCHandlers(): void {
-  ipcMain.handle(IPC_CHANNELS.FRAME_ADD, async (_event, payload: unknown) => {
-    try {
-      const validated = FrameAddPayloadSchema.parse(payload);
-      await windowManager.createFrame(validated.url, validated.name, validated.bounds);
-      trayManager.updateContextMenu();
-      logService.debug('Frame added successfully', { url: validated.url, name: validated.name });
-      return { success: true };
-    } catch (error) {
-      logService.error('IPC frame:add failed', { 
-        error: error instanceof Error ? error.message : String(error) 
-      });
-      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
-    }
+  handleValidatedForSettings(IPC_CHANNELS.FRAME_ADD, FrameAddPayloadSchema, async (v) => {
+    await windowManager.createFrame(v.url, v.name, v.bounds);
+    trayManager.updateContextMenu();
+    logService.debug('Frame added successfully', { url: v.url, name: v.name });
+    return { success: true };
   });
 
-  ipcMain.handle(IPC_CHANNELS.FRAME_UPDATE, async (_event, payload: unknown) => {
-    try {
-      const validated = FrameUpdatePayloadSchema.parse(payload);
-      logService.debug('Frame update received', { id: validated.id, config: validated.config });
-      windowManager.updateFrame(validated.id, validated.config);
-      trayManager.updateContextMenu();
-      return { success: true };
-    } catch (error) {
-      logService.error('IPC frame:update failed', { 
-        error: error instanceof Error ? error.message : String(error),
-        payload
-      });
-      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
-    }
+  handleValidatedForSettings(IPC_CHANNELS.FRAME_UPDATE, FrameUpdatePayloadSchema, async (v) => {
+    logService.debug('Frame update received', { id: v.id, config: v.config });
+    windowManager.updateFrame(v.id, v.config);
+    trayManager.updateContextMenu();
+    return { success: true };
   });
 
-  ipcMain.handle(IPC_CHANNELS.FRAME_REMOVE, async (_event, payload: unknown) => {
-    try {
-      const validated = FrameRemovePayloadSchema.parse(payload);
-      await windowManager.removeFrame(validated.id);
-      trayManager.updateContextMenu();
-      return { success: true };
-    } catch (error) {
-      logService.error('IPC frame:remove failed', {
-        error: error instanceof Error ? error.message : String(error)
-      });
-      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
-    }
+  handleValidatedForSettings(IPC_CHANNELS.FRAME_REMOVE, FrameRemovePayloadSchema, async (v) => {
+    await windowManager.removeFrame(v.id);
+    trayManager.updateContextMenu();
+    return { success: true };
   });
 
-  ipcMain.handle(IPC_CHANNELS.FRAME_ENABLE_ALL, async () => {
-    try {
-      windowManager.enableAllFrames();
-      trayManager.updateContextMenu();
-      return { success: true };
-    } catch (error) {
-      logService.error('IPC frame:enable-all failed', {
-        error: error instanceof Error ? error.message : String(error)
-      });
-      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
-    }
+  handleValidatedForSettings(IPC_CHANNELS.FRAME_FOCUS, FrameFocusPayloadSchema, async (v) => {
+    windowManager.focusFrame(v.id);
+    return { success: true };
   });
 
-  ipcMain.handle(IPC_CHANNELS.FRAME_DISABLE_ALL, async () => {
-    try {
-      windowManager.disableAllFrames();
-      trayManager.updateContextMenu();
-      return { success: true };
-    } catch (error) {
-      logService.error('IPC frame:disable-all failed', {
-        error: error instanceof Error ? error.message : String(error)
-      });
-      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
-    }
+  handleValidatedForSettings(IPC_CHANNELS.FRAME_RESET_LAYOUT, FrameResetLayoutPayloadSchema, async (v) => {
+    windowManager.resetLayout(v.id);
+    trayManager.updateContextMenu();
+    return { success: true };
   });
 
-  ipcMain.handle(IPC_CHANNELS.FRAME_FOCUS, async (_event, payload: unknown) => {
-    try {
-      const validated = FrameFocusPayloadSchema.parse(payload);
-      windowManager.focusFrame(validated.id);
-      return { success: true };
-    } catch (error) {
-      logService.error('IPC frame:focus failed', { 
-        error: error instanceof Error ? error.message : String(error) 
-      });
-      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
-    }
-  });
-
-  ipcMain.handle(IPC_CHANNELS.FRAME_RESET_LAYOUT, async (_event, payload: unknown) => {
-    try {
-      const validated = FrameResetLayoutPayloadSchema.parse(payload);
-      windowManager.resetLayout(validated.id);
-      trayManager.updateContextMenu();
-      return { success: true };
-    } catch (error) {
-      logService.error('IPC frame:reset-layout failed', { 
-        error: error instanceof Error ? error.message : String(error) 
-      });
-      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
-    }
-  });
-
-  ipcMain.handle(IPC_CHANNELS.FRAME_UNSNAP, async (_event, payload: unknown) => {
-    try {
-      const validated = FrameUnsnapPayloadSchema.parse(payload) as FrameUnsnapPayload;
-      windowManager.unsnapFrame(validated.id, {
-        edge: validated.edge,
-        all: validated.all,
-      });
-      trayManager.updateContextMenu();
-      return { success: true };
-    } catch (error) {
-      logService.error('IPC frame:unsnap failed', { 
-        error: error instanceof Error ? error.message : String(error) 
-      });
-      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
-    }
-  });
-
-  ipcMain.handle(IPC_CHANNELS.FRAME_GET_ALL, async () => {
-    try {
-      const frames = configService.getFrames();
-      return { success: true, frames };
-    } catch (error) {
-      logService.error('IPC frame:get-all failed', { 
-        error: error instanceof Error ? error.message : String(error) 
-      });
-      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
-    }
-  });
-
-  ipcMain.handle(IPC_CHANNELS.CONFIG_GET, async () => {
-    try {
-      const config = configService.get();
-      return { success: true, config };
-    } catch (error) {
-      logService.error('IPC config:get failed', { 
-        error: error instanceof Error ? error.message : String(error) 
-      });
-      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
-    }
-  });
-
-  ipcMain.handle(IPC_CHANNELS.CONFIG_SET, async (_event, payload: unknown) => {
-    try {
-      const validated = ConfigSetPayloadSchema.parse(payload);
-      
-      if (validated.key === 'layoutLocked') {
-        windowManager.setLayoutLocked(validated.value as boolean);
-      } else if (validated.key === 'alwaysOnTop') {
-        windowManager.setAlwaysOnTop(validated.value as boolean);
-      } else if (validated.key === 'frameSize') {
+  handleValidatedForSettings(IPC_CHANNELS.CONFIG_SET, ConfigSetPayloadSchema, async (v) => {
+    switch (v.key) {
+      case 'layoutLocked':
+        windowManager.setLayoutLocked(v.value);
+        break;
+      case 'alwaysOnTop':
+        windowManager.setAlwaysOnTop(v.value);
+        break;
+      case 'frameSize':
         // When frame size changes, reset all frame dimensions
-        configService.set(validated.key, validated.value as never);
+        configService.set('frameSize', v.value);
         windowManager.resetAllFrameDimensions();
-      } else {
-        configService.set(validated.key, validated.value as never);
-      }
-      
-      trayManager.updateContextMenu();
-      return { success: true };
-    } catch (error) {
-      logService.error('IPC config:set failed', { 
-        error: error instanceof Error ? error.message : String(error) 
-      });
-      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+        break;
+      default:
+        configService.set(v.key, v.value as never);
+        break;
     }
+
+    trayManager.updateContextMenu();
+    return { success: true };
   });
 
-  ipcMain.handle(IPC_CHANNELS.PAGE_RETRY, async (_event, payload: { frameId: string }) => {
-    try {
-      await windowManager.retryLoadUrl(payload.frameId);
-      return { success: true };
-    } catch (error) {
-      logService.error('IPC page:retry failed', { 
-        error: error instanceof Error ? error.message : String(error) 
-      });
-      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
-    }
+  handleValidatedForFrame(IPC_CHANNELS.FRAME_UNSNAP, FrameUnsnapPayloadSchema, (v) => v.id, async (v) => {
+    windowManager.unsnapFrame(v.id, { edge: v.edge, all: v.all });
+    trayManager.updateContextMenu();
+    return { success: true };
   });
 
-  ipcMain.handle(IPC_CHANNELS.APP_QUIT, async () => {
+  handleValidatedForFrame(IPC_CHANNELS.PAGE_RETRY, PageRetryPayloadSchema, (v) => v.frameId, async (v) => {
+    await windowManager.retryLoadUrl(v.frameId);
+    return { success: true };
+  });
+
+  handleValidatedKnownSender(IPC_CHANNELS.TRAY_SHOW_MENU, TrayShowMenuPayloadSchema, async (v) => {
+    trayManager.showContextMenuAt(v.x, v.y);
+    return { success: true };
+  });
+
+  handleForSettings(IPC_CHANNELS.FRAME_ENABLE_ALL, async () => {
+    windowManager.enableAllFrames();
+    trayManager.updateContextMenu();
+    return { success: true };
+  });
+
+  handleForSettings(IPC_CHANNELS.FRAME_DISABLE_ALL, async () => {
+    windowManager.disableAllFrames();
+    trayManager.updateContextMenu();
+    return { success: true };
+  });
+
+  handleForSettings(IPC_CHANNELS.FRAME_GET_ALL, async () => {
+    const frames = configService.getFrames();
+    return { success: true, frames };
+  });
+
+  handleForSettings(IPC_CHANNELS.CONFIG_GET, async () => {
+    const config = configService.get();
+    return { success: true, config };
+  });
+
+  handleForSettings(IPC_CHANNELS.APP_QUIT, async () => {
     configService.saveSync();
     app.quit();
-  });
-
-  ipcMain.handle(IPC_CHANNELS.TRAY_SHOW_MENU, async (_event, payload: { x: number; y: number }) => {
-    try {
-      trayManager.showContextMenuAt(payload.x, payload.y);
-      return { success: true };
-    } catch (error) {
-      logService.error('IPC tray:show-menu failed', {
-        error: error instanceof Error ? error.message : String(error)
-      });
-      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
-    }
   });
 
   logService.info('IPC handlers registered');

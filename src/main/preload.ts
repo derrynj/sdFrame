@@ -1,86 +1,32 @@
 import { contextBridge, ipcRenderer } from 'electron';
+import { IPC_CHANNELS } from '../shared/constants';
+import type {
+  FrameAddPayload,
+  FrameUpdatePayload,
+  FrameRemovePayload,
+  FrameFocusPayload,
+  FrameResetLayoutPayload,
+  FrameUnsnapPayload,
+  ConfigSetPayload,
+} from '../shared/types';
 
-// NOTE: IPC_CHANNELS is duplicated here from src/shared/constants.ts
-// This is necessary because the preload script runs in a sandboxed context
-// and cannot import external modules. See docs/preload-script-duplication.md
-// for details on why this duplication exists and how to maintain it.
-const IPC_CHANNELS = {
-  FRAME_ADD: 'frame:add',
-  FRAME_UPDATE: 'frame:update',
-  FRAME_REMOVE: 'frame:remove',
-  FRAME_FOCUS: 'frame:focus',
-  FRAME_RESET_LAYOUT: 'frame:reset-layout',
-  FRAME_GET_ALL: 'frame:get-all',
-  CONFIG_GET: 'config:get',
-  CONFIG_SET: 'config:set',
-  APP_QUIT: 'app:quit',
-  FRAME_LIST: 'frame:list',
-  CONFIG_UPDATED: 'config:updated',
-  FRAME_CREATED: 'frame:created',
-  FRAME_REMOVED: 'frame:removed',
-  FRAME_SHOW_BORDER: 'frame:show-border',
-  FRAME_HIDE_BORDER: 'frame:hide-border',
-  PAGE_LOAD_FAILED: 'page:load-failed',
-  PAGE_RETRY: 'page:retry',
-  OPEN_SETTINGS: 'open:settings',
-  FRAME_UNSNAP: 'frame:unsnap',
-  FRAME_ENABLE_ALL: 'frame:enable-all',
-  FRAME_DISABLE_ALL: 'frame:disable-all',
-  FRAME_SNAP_STATUS_CHANGED: 'frame:snap-status-changed',
-  TRAY_SHOW_MENU: 'tray:show-menu',
-} as const;
-
-interface FrameAddPayload {
-  name?: string;
-  url: string;
-  bounds?: { x?: number; y?: number; width?: number; height?: number };
-}
-
-interface FrameUpdatePayload {
-  id: string;
-  config: Record<string, unknown>;
-}
-
-interface FrameRemovePayload {
-  id: string;
-}
-
-interface FrameFocusPayload {
-  id: string;
-}
-
-interface FrameResetLayoutPayload {
-  id?: string;
-}
-
-interface FrameUnsnapPayload {
-  id: string;
-  edge?: 'left' | 'right' | 'top' | 'bottom' | 'align-top' | 'align-bottom' | 'align-left' | 'align-right';
-  all?: boolean;
-}
-
-interface ConfigSetPayload {
-  key: string;
-  value: unknown;
-}
-
-const api = {
+const fullApi = {
   frame: {
     add: (payload: FrameAddPayload) =>
       ipcRenderer.invoke(IPC_CHANNELS.FRAME_ADD, payload),
-    
+
     update: (payload: FrameUpdatePayload) =>
       ipcRenderer.invoke(IPC_CHANNELS.FRAME_UPDATE, payload),
-    
+
     remove: (payload: FrameRemovePayload) =>
       ipcRenderer.invoke(IPC_CHANNELS.FRAME_REMOVE, payload),
-    
+
     focus: (payload: FrameFocusPayload) =>
       ipcRenderer.invoke(IPC_CHANNELS.FRAME_FOCUS, payload),
-    
+
     resetLayout: (payload: FrameResetLayoutPayload) =>
       ipcRenderer.invoke(IPC_CHANNELS.FRAME_RESET_LAYOUT, payload),
-    
+
     getAll: () =>
       ipcRenderer.invoke(IPC_CHANNELS.FRAME_GET_ALL),
 
@@ -94,18 +40,15 @@ const api = {
       ipcRenderer.invoke(IPC_CHANNELS.FRAME_DISABLE_ALL),
   },
 
-  ipc: {
-    invoke: (channel: string, data?: unknown) => ipcRenderer.invoke(channel, data),
-    on: (channel: string, callback: (...args: unknown[]) => void) =>
-      ipcRenderer.on(channel, (_event, ...args) => callback(...args)),
+  tray: {
+    showMenu: (x: number, y: number) =>
+      ipcRenderer.invoke(IPC_CHANNELS.TRAY_SHOW_MENU, { x, y }),
   },
-
-  channels: IPC_CHANNELS,
 
   config: {
     get: () =>
       ipcRenderer.invoke(IPC_CHANNELS.CONFIG_GET),
-    
+
     set: (payload: ConfigSetPayload) =>
       ipcRenderer.invoke(IPC_CHANNELS.CONFIG_SET, payload),
   },
@@ -144,10 +87,24 @@ const api = {
   },
 };
 
-contextBridge.exposeInMainWorld('sdFrame', api);
+const restrictedApi = {
+  frame: {
+    unsnap: fullApi.frame.unsnap,
+  },
+  tray: fullApi.tray,
+  page: fullApi.page,
+  on: fullApi.on,
+  getQueryParams: fullApi.getQueryParams,
+};
+
+const isSettingsWindow = process.argv.includes('--sdframe-settings');
+contextBridge.exposeInMainWorld('sdFrame', isSettingsWindow ? fullApi : restrictedApi);
+
+type SdFrameApi = typeof fullApi;
+type SdFrameRestrictedApi = typeof restrictedApi;
 
 declare global {
   interface Window {
-    sdFrame: typeof api;
+    sdFrame: SdFrameRestrictedApi | SdFrameApi;
   }
 }

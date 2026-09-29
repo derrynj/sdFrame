@@ -15,10 +15,16 @@ export const SnapTargetSchema = z.object({
   distance: z.number().optional(),
 });
 
+export const HTTP_URL_REGEX = /^https?:\/\//i;
+
+export const isHttpUrl = (u: string): boolean => HTTP_URL_REGEX.test(u);
+
+export const HttpUrlSchema = z.string().url().refine(isHttpUrl, { message: 'Only http and https URLs are supported' });
+
 export const FrameConfigSchema = z.object({
   id: z.string().uuid(),
   name: z.string().optional(),
-  url: z.string().url(),
+  url: HttpUrlSchema,
   enabled: z.boolean(),
   bounds: BoundsSchema,
   color: z.string().regex(/^#[0-9A-Fa-f]{6}$/),
@@ -46,7 +52,7 @@ export const AppConfigSchema = z.object({
 
 export const FrameAddPayloadSchema = z.object({
   name: z.string().optional(),
-  url: z.string().url(),
+  url: HttpUrlSchema,
   bounds: BoundsSchema.partial().optional(),
 });
 
@@ -67,13 +73,22 @@ export const FrameResetLayoutPayloadSchema = z.object({
   id: z.string().uuid().optional(),
 });
 
-export const ConfigSetPayloadSchema = z.object({
-  key: z.enum(['snapEnabled', 'snapThreshold', 'groupMovementEnabled', 'layoutLocked', 'alwaysOnTop', 'logLevel', 'frameSize']),
-  value: z.union([z.boolean(), z.number(), LogLevelSchema, FrameSizeSettingsSchema]),
-});
+export const ConfigSetPayloadSchema = z.discriminatedUnion('key', [
+  z.object({ key: z.literal('snapEnabled'), value: z.boolean() }),
+  z.object({ key: z.literal('snapThreshold'), value: z.number().min(1).max(50) }),
+  z.object({ key: z.literal('groupMovementEnabled'), value: z.boolean() }),
+  z.object({ key: z.literal('layoutLocked'), value: z.boolean() }),
+  z.object({ key: z.literal('alwaysOnTop'), value: z.boolean() }),
+  z.object({ key: z.literal('logLevel'), value: LogLevelSchema }),
+  z.object({ key: z.literal('frameSize'), value: FrameSizeSettingsSchema }),
+]);
 
 export const FrameUnsnapPayloadSchema = z.object({
   id: z.string().uuid(),
   edge: SnapEdgeSchema.optional(),
   all: z.boolean().optional(),
 });
+
+export const PageRetryPayloadSchema = z.object({ frameId: z.string().uuid() });
+
+export const TrayShowMenuPayloadSchema = z.object({ x: z.number(), y: z.number() });
