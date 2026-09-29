@@ -615,6 +615,57 @@ export class WindowManager {
     logService.info('All frame dimensions reset');
   }
 
+  alignAndSnapAllFrames(): void {
+    const frames = configService.getFrames().filter(frame => frame.enabled && this.frameWindows.has(frame.id));
+    if (frames.length === 0) return;
+
+    if (frames.length > 6) {
+      void dialog.showMessageBox({
+        type: 'warning',
+        title: 'Too many frames',
+        message: 'Align and snap supports up to 6 enabled frames.',
+        detail: 'Disable one or more frames and try again.',
+      });
+      return;
+    }
+
+    const workArea = screen.getPrimaryDisplay().workArea;
+    const appConfig = configService.get();
+    const frameHeight = Math.min(
+      appConfig.frameSize.height || Math.floor(workArea.height / 4) + 24,
+      workArea.height
+    );
+    const defaultWidth = appConfig.frameSize.width || Math.floor(workArea.width / 4);
+    const frameWidth = frames.length === 1
+      ? Math.min(defaultWidth, workArea.width)
+      : Math.floor(workArea.width / frames.length);
+
+    if (frameWidth < 100 || frameHeight < 100) {
+      void dialog.showMessageBox({
+        type: 'warning',
+        title: 'Screen too small',
+        message: 'There is not enough space to align these frames.',
+      });
+      return;
+    }
+
+    const y = workArea.y + Math.floor((workArea.height - frameHeight) / 2);
+    frames.forEach((frame, index) => {
+      const x = frames.length === 1
+        ? workArea.x + Math.floor((workArea.width - frameWidth) / 2)
+        : workArea.x + index * frameWidth;
+      const width = frames.length > 1 && index === frames.length - 1
+        ? workArea.x + workArea.width - x
+        : frameWidth;
+      const bounds = { x, y, width, height: frameHeight };
+      this.frameWindows.get(frame.id)?.setBounds(bounds);
+      configService.updateFrameBounds(frame.id, bounds);
+    });
+
+    snapManager.connectFramesInSequence(frames.map(frame => frame.id));
+    logService.info('All frames aligned and snapped', { count: frames.length, frameHeight });
+  }
+
   setLayoutLocked(locked: boolean): void {
     configService.set('layoutLocked', locked);
     

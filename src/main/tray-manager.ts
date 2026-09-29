@@ -55,6 +55,7 @@ export class TrayManager {
 
     const config = configService.get();
     const frames = configService.getFrames();
+    const enabledFrameCount = frames.filter(frame => frame.enabled).length;
 
     const frameMenuItems: Electron.MenuItemConstructorOptions[] = frames.map(frame => ({
       label: `${frame.enabled ? '●' : '○'} ${frame.name || 'Frame ' + frame.id.slice(0, 8)}`,
@@ -92,6 +93,11 @@ export class TrayManager {
       {
         label: 'Add Frame...',
         click: () => windowManager.openSettingsWindow(),
+      },
+      {
+        label: 'Align and snap all frames',
+        enabled: enabledFrameCount > 0 && enabledFrameCount <= 6,
+        click: () => windowManager.alignAndSnapAllFrames(),
       },
       { type: 'separator' },
       ...(frameMenuItems.length > 0

@@ -355,6 +355,22 @@ export class SnapManager {
     }
   }
 
+  connectFramesInSequence(frameIds: string[]): void {
+    const registeredFrameIds = frameIds.filter(id => this.windows.has(id));
+    registeredFrameIds.forEach(id => this.removeAllSnapConnectionsForFrame(id));
+    registeredFrameIds.forEach(id => {
+      const window = this.windows.get(id);
+      if (window) this.previousBounds.set(id, window.getBounds());
+    });
+
+    for (let index = 0; index < registeredFrameIds.length - 1; index++) {
+      this.recordSnapConnection(registeredFrameIds[index], registeredFrameIds[index + 1], 'right');
+    }
+
+    registeredFrameIds.forEach(id => this.notifySnapStatus(id));
+    logService.info('Frames connected as snap group', { frameIds: registeredFrameIds });
+  }
+
   /**
    * Gets the opposite edge for a bidirectional snap connection.
    */
