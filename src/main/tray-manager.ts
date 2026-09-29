@@ -1,4 +1,5 @@
 import { Tray, Menu, nativeImage, app } from 'electron';
+import type { BrowserWindow } from 'electron';
 import * as path from 'path';
 import { windowManager } from './window-manager';
 import { configService } from '../services/config-service';
@@ -203,12 +204,12 @@ export class TrayManager {
     windowManager.openSettingsWindow();
   }
 
-  showContextMenuAt(x: number, y: number): void {
+  showContextMenuAt(window: BrowserWindow, x: number, y: number): void {
     if (!this.tray) return;
 
     this.updateContextMenu();
     if (this.contextMenu) {
-      this.contextMenu.popup({ x, y });
+      this.contextMenu.popup({ window, x, y });
     }
   }
 

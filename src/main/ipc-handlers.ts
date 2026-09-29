@@ -1,4 +1,4 @@
-import { ipcMain, app } from 'electron';
+import { ipcMain, app, BrowserWindow } from 'electron';
 import type { IpcMainInvokeEvent } from 'electron';
 import { z } from 'zod';
 import { IPC_CHANNELS } from '../shared/constants';
@@ -57,7 +57,7 @@ function handleValidatedForFrame<T>(channel: string, schema: z.ZodType<T>, getFr
   });
 }
 
-function handleValidatedKnownSender<T>(channel: string, schema: z.ZodType<T>, run: (payload: T) => unknown | Promise<unknown>): void {
+function handleValidatedKnownSender<T>(channel: string, schema: z.ZodType<T>, run: (payload: T, event: IpcMainInvokeEvent) => unknown | Promise<unknown>): void {
   ipcMain.handle(channel, async (event: IpcMainInvokeEvent, payload: unknown) => {
     try {
       const validated = schema.parse(payload);
@@ -68,7 +68,7 @@ function handleValidatedKnownSender<T>(channel: string, schema: z.ZodType<T>, ru
         channel
       );
       if (denied) return denied;
-      return await run(validated);
+      return await run(validated, event);
     } catch (error) {
       logService.error(`IPC ${channel} failed`, {
         error: error instanceof Error ? error.message : String(error),
@@ -174,8 +174,9 @@ export function registerIPCHandlers(): void {
     return { success: true };
   });
 
-  handleValidatedKnownSender(IPC_CHANNELS.TRAY_SHOW_MENU, TrayShowMenuPayloadSchema, async (v) => {
-    trayManager.showContextMenuAt(v.x, v.y);
+  handleValidatedKnownSender(IPC_CHANNELS.TRAY_SHOW_MENU, TrayShowMenuPayloadSchema, async (v, event) => {
+    const sourceWindow = BrowserWindow.fromWebContents(event.sender);
+    if (sourceWindow) trayManager.showContextMenuAt(sourceWindow, v.x, v.y);
     return { success: true };
   });
 

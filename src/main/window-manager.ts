@@ -400,7 +400,7 @@ export class WindowManager {
           menuBtn.addEventListener('click', function(event) {
             event.preventDefault();
             event.stopPropagation();
-            window.sdFrame.tray.showMenu(event.screenX, event.screenY);
+            window.sdFrame.tray.showMenu(event.clientX, event.clientY);
           });
 
           window.sdFrame.on.snapStatusChanged(function(data) {
