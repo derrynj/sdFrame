@@ -240,6 +240,18 @@ class ConfigService {
     logService.debug(`Config updated: ${key}`, { value });
   }
 
+  replace(config: unknown): AppConfig {
+    const validated = AppConfigSchema.parse(config);
+    if (this.saveTimeout) {
+      clearTimeout(this.saveTimeout);
+      this.saveTimeout = null;
+    }
+    this.config = validated;
+    logService.setLevel(validated.logLevel);
+    this.saveSync();
+    return this.get();
+  }
+
   getFrames(): FrameConfig[] {
     return structuredClone(this.config.frames);
   }

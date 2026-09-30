@@ -55,6 +55,8 @@ export const IPC_CHANNELS = {
   FRAME_GET_ALL: 'frame:get-all',
   CONFIG_GET: 'config:get',
   CONFIG_SET: 'config:set',
+  CONFIG_IMPORT: 'config:import',
+  CONFIG_EXPORT: 'config:export',
   APP_QUIT: 'app:quit',
   FRAME_LIST: 'frame:list',
   CONFIG_UPDATED: 'config:updated',

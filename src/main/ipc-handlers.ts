@@ -1,4 +1,6 @@
-import { ipcMain, app, BrowserWindow } from 'electron';
+import { ipcMain, app, BrowserWindow, dialog } from 'electron';
+import type { OpenDialogOptions, SaveDialogOptions } from 'electron';
+import * as fs from 'fs/promises';
 import type { IpcMainInvokeEvent } from 'electron';
 import { z } from 'zod';
 import { IPC_CHANNELS } from '../shared/constants';
@@ -205,6 +207,49 @@ export function registerIPCHandlers(): void {
   handleForSettings(IPC_CHANNELS.CONFIG_GET, async () => {
     const config = configService.get();
     return { success: true, config };
+  });
+
+  handleForSettings(IPC_CHANNELS.CONFIG_IMPORT, async () => {
+    const settingsWindow = BrowserWindow.getAllWindows().find(window =>
+      window.webContents.getURL().includes('settings/index.html')
+    );
+    const options: OpenDialogOptions = {
+      title: 'Import sdFrame Config',
+      properties: ['openFile'],
+      filters: [{ name: 'JSON Config', extensions: ['json'] }],
+    };
+    const result = settingsWindow
+      ? await dialog.showOpenDialog(settingsWindow, options)
+      : await dialog.showOpenDialog(options);
+    if (result.canceled || result.filePaths.length === 0) {
+      return { success: true, canceled: true };
+    }
+
+    const fileContents = await fs.readFile(result.filePaths[0], 'utf-8');
+    const importedConfig: unknown = JSON.parse(fileContents);
+    await windowManager.importConfig(importedConfig);
+    trayManager.updateContextMenu();
+    return { success: true };
+  });
+
+  handleForSettings(IPC_CHANNELS.CONFIG_EXPORT, async () => {
+    const settingsWindow = BrowserWindow.getAllWindows().find(window =>
+      window.webContents.getURL().includes('settings/index.html')
+    );
+    const options: SaveDialogOptions = {
+      title: 'Export sdFrame Config',
+      defaultPath: 'sdFrame-config.json',
+      filters: [{ name: 'JSON Config', extensions: ['json'] }],
+    };
+    const result = settingsWindow
+      ? await dialog.showSaveDialog(settingsWindow, options)
+      : await dialog.showSaveDialog(options);
+    if (result.canceled || !result.filePath) {
+      return { success: true, canceled: true };
+    }
+
+    await fs.writeFile(result.filePath, JSON.stringify(configService.get(), null, 2), 'utf-8');
+    return { success: true };
   });
 
   handleForSettings(IPC_CHANNELS.APP_QUIT, async () => {

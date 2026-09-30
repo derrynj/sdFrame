@@ -48,6 +48,8 @@ type SdFrameFullApi = {
   config: {
     get: () => Promise<{ success: boolean; config?: AppConfig }>;
     set: (p: { key: string; value: unknown }) => Promise<{ success: boolean; error?: string }>;
+    import: () => Promise<{ success: boolean; canceled?: boolean; error?: string }>;
+    export: () => Promise<{ success: boolean; canceled?: boolean; error?: string }>;
   };
   page: {
     retry: (frameId: string) => Promise<{ success: boolean; error?: string }>;
@@ -77,6 +79,9 @@ const elements = {
   frameHeight: document.getElementById('frame-height') as HTMLInputElement,
   resetDimensionsBtn: document.getElementById('reset-dimensions-btn') as HTMLButtonElement,
   resetAllBtn: document.getElementById('reset-all-btn') as HTMLButtonElement,
+  importConfigBtn: document.getElementById('import-config-btn') as HTMLButtonElement,
+  exportConfigBtn: document.getElementById('export-config-btn') as HTMLButtonElement,
+  configFileStatus: document.getElementById('config-file-status') as HTMLParagraphElement,
 };
 
 async function loadConfig(): Promise<void> {
@@ -385,6 +390,30 @@ elements.enableAllBtn.addEventListener('click', async () => {
 elements.disableAllBtn.addEventListener('click', async () => {
   await sdFrame.frame.disableAll();
   await loadFrames();
+});
+
+elements.importConfigBtn.addEventListener('click', async () => {
+  elements.configFileStatus.textContent = '';
+  const response = await sdFrame.config.import();
+  if (!response?.success) {
+    elements.configFileStatus.textContent = response?.error || 'Import failed.';
+    return;
+  }
+  if (!response.canceled) {
+    await loadConfig();
+    await loadFrames();
+    elements.configFileStatus.textContent = 'Config imported.';
+  }
+});
+
+elements.exportConfigBtn.addEventListener('click', async () => {
+  elements.configFileStatus.textContent = '';
+  const response = await sdFrame.config.export();
+  if (!response?.success) {
+    elements.configFileStatus.textContent = response?.error || 'Export failed.';
+  } else if (!response.canceled) {
+    elements.configFileStatus.textContent = 'Config exported.';
+  }
 });
 
 loadConfig();

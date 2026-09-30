@@ -764,6 +764,27 @@ export class WindowManager {
     logService.info('Frames restored', { count: frames.length });
   }
 
+  async importConfig(config: unknown): Promise<void> {
+    const importedConfig = configService.replace(config);
+    this.usedColors.clear();
+    importedConfig.frames.forEach(frame => this.usedColors.add(frame.color));
+
+    const closePromises = Array.from(this.frameWindows.entries()).map(([id, window]) => {
+      if (window.isDestroyed()) return Promise.resolve();
+      this.intentionalClosing.add(id);
+      return new Promise<void>(resolve => {
+        window.once('closed', () => resolve());
+        window.close();
+      });
+    });
+    await Promise.all(closePromises);
+
+    for (const window of this.frameWindows.values()) {
+      if (!window.isDestroyed()) window.destroy();
+    }
+    await this.restoreFrames();
+  }
+
   openSettingsWindow(): void {
     if (this.settingsWindow && !this.settingsWindow.isDestroyed()) {
       if (this.settingsWindow.isMinimized()) {

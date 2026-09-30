@@ -245,6 +245,17 @@ select:focus {
   border-bottom: none;
 }
 
+.config-file-actions {
+  justify-content: flex-start;
+  gap: 8px;
+}
+
+.config-file-status {
+  min-height: 1.5em;
+  color: #aaa;
+  font-size: 12px;
+}
+
 .setting-row label {
   display: flex;
   align-items: center;

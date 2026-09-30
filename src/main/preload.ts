@@ -54,6 +54,12 @@ const fullApi = {
 
     set: (payload: ConfigSetPayload) =>
       ipcRenderer.invoke(IPC_CHANNELS.CONFIG_SET, payload),
+
+    import: () =>
+      ipcRenderer.invoke(IPC_CHANNELS.CONFIG_IMPORT),
+
+    export: () =>
+      ipcRenderer.invoke(IPC_CHANNELS.CONFIG_EXPORT),
   },
 
   page: {
