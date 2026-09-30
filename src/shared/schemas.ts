@@ -73,6 +73,11 @@ export const FrameResetLayoutPayloadSchema = z.object({
   id: z.string().uuid().optional(),
 });
 
+export const FrameGroupHeightPayloadSchema = z.object({
+  id: z.string().uuid(),
+  height: z.number().min(100).max(5000),
+});
+
 export const ConfigSetPayloadSchema = z.discriminatedUnion('key', [
   z.object({ key: z.literal('snapEnabled'), value: z.boolean() }),
   z.object({ key: z.literal('snapThreshold'), value: z.number().min(1).max(50) }),

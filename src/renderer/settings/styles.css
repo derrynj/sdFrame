@@ -245,6 +245,23 @@ select:focus {
   border-bottom: none;
 }
 
+.subsection-title {
+  margin-top: 16px;
+}
+
+.group-height-row select {
+  max-width: 58%;
+}
+
+.group-height-controls {
+  display: flex;
+  gap: 8px;
+}
+
+.group-height-controls input[type="number"] {
+  width: 100px;
+}
+
 .config-file-actions {
   justify-content: flex-start;
   gap: 8px;

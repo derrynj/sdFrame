@@ -49,6 +49,14 @@ export class SnapManager {
     logService.debug('Window unregistered from snapping', { id });
   }
 
+  setBounds(id: string, bounds: Bounds): void {
+    const window = this.windows.get(id);
+    if (!window) return;
+
+    this.previousBounds.set(id, bounds);
+    window.setBounds(bounds);
+  }
+
   onSnapStatusChange(callback: SnapStatusChangeCallback): void {
     this.snapStatusChangeCallbacks.push(callback);
   }

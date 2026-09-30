@@ -40,6 +40,7 @@ type SdFrameFullApi = {
     focus: (p: { id: string }) => Promise<{ success: boolean; error?: string }>;
     resetLayout: (p: { id?: string }) => Promise<{ success: boolean; error?: string }>;
     resetDimensions: () => Promise<{ success: boolean; error?: string }>;
+    setGroupHeight: (p: { id: string; height: number }) => Promise<{ success: boolean; error?: string; frameCount?: number }>;
     getAll: () => Promise<{ success: boolean; frames?: FrameConfig[] }>;
     unsnap: (p: { id: string; edge?: string; all?: boolean }) => Promise<{ success: boolean; error?: string }>;
     enableAll: () => Promise<{ success: boolean }>;
@@ -77,6 +78,10 @@ const elements = {
   logLevel: document.getElementById('log-level') as HTMLSelectElement,
   frameWidth: document.getElementById('frame-width') as HTMLInputElement,
   frameHeight: document.getElementById('frame-height') as HTMLInputElement,
+  groupHeightFrame: document.getElementById('group-height-frame') as HTMLSelectElement,
+  groupHeight: document.getElementById('group-height-input') as HTMLInputElement,
+  applyGroupHeightBtn: document.getElementById('apply-group-height-btn') as HTMLButtonElement,
+  groupHeightStatus: document.getElementById('group-height-status') as HTMLParagraphElement,
   resetDimensionsBtn: document.getElementById('reset-dimensions-btn') as HTMLButtonElement,
   resetAllBtn: document.getElementById('reset-all-btn') as HTMLButtonElement,
   importConfigBtn: document.getElementById('import-config-btn') as HTMLButtonElement,
@@ -107,6 +112,23 @@ async function loadFrames(): Promise<void> {
 }
 
 function renderFrames(frames: FrameConfig[]): void {
+  const previouslySelectedId = elements.groupHeightFrame.value;
+  const enabledFrames = frames.filter(frame => frame.enabled);
+  elements.groupHeightFrame.innerHTML = enabledFrames.map(frame =>
+    `<option value="${frame.id}">${escapeHtml(frame.name || frame.id.slice(0, 8))}</option>`
+  ).join('');
+  elements.groupHeightFrame.disabled = enabledFrames.length === 0;
+  elements.groupHeight.disabled = enabledFrames.length === 0;
+  elements.applyGroupHeightBtn.disabled = enabledFrames.length === 0;
+
+  if (enabledFrames.length > 0) {
+    const selectedFrame = enabledFrames.find(frame => frame.id === previouslySelectedId) ?? enabledFrames[0];
+    elements.groupHeightFrame.value = selectedFrame.id;
+    if (selectedFrame.id !== previouslySelectedId) {
+      elements.groupHeight.value = String(selectedFrame.bounds.height);
+    }
+  }
+
   if (frames.length === 0) {
     elements.framesContainer.innerHTML = '<p class="no-frames">No frames configured</p>';
     return;
@@ -372,6 +394,36 @@ elements.frameHeight.addEventListener('change', async () => {
       await sdFrame.config.set({ key: 'frameSize', value: newFrameSize });
     }
   }
+});
+
+elements.groupHeightFrame.addEventListener('change', async () => {
+  const response = await sdFrame.frame.getAll();
+  const frame = response?.frames?.find(candidate => candidate.id === elements.groupHeightFrame.value);
+  if (frame) {
+    elements.groupHeight.value = String(frame.bounds.height);
+    elements.groupHeightStatus.textContent = '';
+  }
+});
+
+elements.applyGroupHeightBtn.addEventListener('click', async () => {
+  const height = parseInt(elements.groupHeight.value, 10);
+  if (!Number.isInteger(height) || height < 100 || height > 5000) {
+    elements.groupHeightStatus.textContent = 'Enter a height between 100 and 5000 pixels.';
+    return;
+  }
+
+  const response = await sdFrame.frame.setGroupHeight({
+    id: elements.groupHeightFrame.value,
+    height,
+  });
+  if (!response?.success) {
+    elements.groupHeightStatus.textContent = response?.error || 'Could not change the group height.';
+    return;
+  }
+
+  const frameCount = response.frameCount ?? 0;
+  elements.groupHeightStatus.textContent = `Height applied to ${frameCount} frame${frameCount === 1 ? '' : 's'}.`;
+  await loadFrames();
 });
 
 elements.resetDimensionsBtn.addEventListener('click', async () => {

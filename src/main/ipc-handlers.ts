@@ -10,6 +10,7 @@ import {
   FrameRemovePayloadSchema,
   FrameFocusPayloadSchema,
   FrameResetLayoutPayloadSchema,
+  FrameGroupHeightPayloadSchema,
   ConfigSetPayloadSchema,
   FrameUnsnapPayloadSchema,
   PageRetryPayloadSchema,
@@ -146,6 +147,11 @@ export function registerIPCHandlers(): void {
   handleForSettings(IPC_CHANNELS.FRAME_RESET_DIMENSIONS, async () => {
     windowManager.resetAllFrameDimensions();
     return { success: true };
+  });
+
+  handleValidatedForSettings(IPC_CHANNELS.FRAME_SET_GROUP_HEIGHT, FrameGroupHeightPayloadSchema, async (v) => {
+    const frameCount = windowManager.setGroupHeight(v.id, v.height);
+    return { success: true, frameCount };
   });
 
   handleValidatedForSettings(IPC_CHANNELS.CONFIG_SET, ConfigSetPayloadSchema, async (v) => {

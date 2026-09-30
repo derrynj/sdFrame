@@ -52,6 +52,7 @@ export const IPC_CHANNELS = {
   FRAME_FOCUS: 'frame:focus',
   FRAME_RESET_LAYOUT: 'frame:reset-layout',
   FRAME_RESET_DIMENSIONS: 'frame:reset-dimensions',
+  FRAME_SET_GROUP_HEIGHT: 'frame:set-group-height',
   FRAME_GET_ALL: 'frame:get-all',
   CONFIG_GET: 'config:get',
   CONFIG_SET: 'config:set',

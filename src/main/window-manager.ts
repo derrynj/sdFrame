@@ -563,6 +563,29 @@ export class WindowManager {
     }
   }
 
+  setGroupHeight(id: string, height: number): number {
+    if (!this.frameWindows.has(id)) {
+      throw new Error('The selected frame is not enabled');
+    }
+
+    const group = snapManager.getGroup(id);
+    let frameCount = 0;
+
+    group.forEach(frameId => {
+      const window = this.frameWindows.get(frameId);
+      if (!window) return;
+
+      const bounds = this.validateBounds({ ...window.getBounds(), height });
+      snapManager.setBounds(frameId, bounds);
+      configService.updateFrameBounds(frameId, bounds);
+      frameCount++;
+    });
+
+    group.forEach(frameId => snapManager.updateSnapConnections(frameId));
+    logService.info('Snapped group height changed', { id, height, frameCount });
+    return frameCount;
+  }
+
   resetLayout(id?: string): void {
     if (id) {
       const window = this.frameWindows.get(id);

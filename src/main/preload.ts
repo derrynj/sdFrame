@@ -6,6 +6,7 @@ import type {
   FrameRemovePayload,
   FrameFocusPayload,
   FrameResetLayoutPayload,
+  FrameGroupHeightPayload,
   FrameUnsnapPayload,
   ConfigSetPayload,
 } from '../shared/types';
@@ -29,6 +30,9 @@ const fullApi = {
 
     resetDimensions: () =>
       ipcRenderer.invoke(IPC_CHANNELS.FRAME_RESET_DIMENSIONS),
+
+    setGroupHeight: (payload: FrameGroupHeightPayload) =>
+      ipcRenderer.invoke(IPC_CHANNELS.FRAME_SET_GROUP_HEIGHT, payload),
 
     getAll: () =>
       ipcRenderer.invoke(IPC_CHANNELS.FRAME_GET_ALL),

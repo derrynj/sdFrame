@@ -82,6 +82,11 @@ export interface FrameResetLayoutPayload {
   id?: string;
 }
 
+export interface FrameGroupHeightPayload {
+  id: string;
+  height: number;
+}
+
 export interface ConfigSetPayload {
   key: keyof Omit<AppConfig, 'version' | 'frames'>;
   value: boolean | number | LogLevel | FrameSizeSettings;
