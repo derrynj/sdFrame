@@ -18,7 +18,7 @@ export interface SnapStatusChangeCallback {
 
 export class SnapManager {
   private windows: Map<string, BrowserWindow> = new Map();
-  private isDragging = false;
+  private draggingWindowId: string | null = null;
   private dragStartPositions: Map<string, Bounds> = new Map();
   private groupMoveInProgress = false;
   private previousBounds: Map<string, Bounds> = new Map();
@@ -68,14 +68,13 @@ export class SnapManager {
   }
 
   private setupWindowListeners(id: string, window: BrowserWindow): void {
-    let moveStartBounds: Bounds | null = null;
-
     window.on('will-move', () => {
       if (this.groupMoveInProgress) return;
       if (configService.isLayoutLocked()) return;
+      if (this.draggingWindowId !== null) return;
 
-      moveStartBounds = window.getBounds();
-      this.isDragging = true;
+      this.draggingWindowId = id;
+      this.dragStartPositions.clear();
 
       const group = this.getGroup(id);
       group.forEach(groupId => {
@@ -88,7 +87,7 @@ export class SnapManager {
 
     window.on('move', () => {
       if (this.groupMoveInProgress) return;
-      if (!this.isDragging) return;
+      if (this.draggingWindowId !== id) return;
       if (configService.isLayoutLocked()) return;
 
       if (!configService.isGroupMovementEnabled()) return;
@@ -123,9 +122,13 @@ export class SnapManager {
 
     window.on('moved', () => {
       if (this.groupMoveInProgress) return;
-      this.isDragging = false;
+      if (this.draggingWindowId !== id) return;
+      this.draggingWindowId = null;
 
-      if (configService.isLayoutLocked()) return;
+      if (configService.isLayoutLocked()) {
+        this.dragStartPositions.clear();
+        return;
+      }
 
       const wasSnapped = this.isFrameSnapped(id);
 
@@ -173,7 +176,6 @@ export class SnapManager {
       });
 
       this.dragStartPositions.clear();
-      moveStartBounds = null;
       this.previousBounds.set(id, window.getBounds());
     });
 
@@ -302,11 +304,10 @@ export class SnapManager {
     }
 
     if (snapX !== null || snapY !== null || alignX !== null || alignY !== null) {
-      window.setBounds({
-        ...bounds,
-        x: bounds.x + (snapX ?? 0) + (alignX ?? 0),
-        y: bounds.y + (snapY ?? 0) + (alignY ?? 0),
-      });
+      window.setPosition(
+        bounds.x + (snapX ?? 0) + (alignX ?? 0),
+        bounds.y + (snapY ?? 0) + (alignY ?? 0),
+      );
 
       // Record the edge snap connection immediately when applying the snap
       if (bestSnapTarget) {
