@@ -9,6 +9,7 @@
     "bundle-preload": "node scripts/bundle-preload.js",
     "build": "tsc && npm run bundle-preload && npm run copy-assets",
     "typecheck": "tsc --noEmit",
+    "test": "tsc && node --test tests/snap-geometry.test.cjs",
     "start": "npm run build && electron .",
     "dev": "npm run build && electron .",
     "pack": "npm run build && electron-builder --dir",

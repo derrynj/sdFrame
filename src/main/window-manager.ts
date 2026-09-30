@@ -568,9 +568,9 @@ export class WindowManager {
       const window = this.frameWindows.get(id);
       if (window) {
         const defaultBounds = this.getDefaultBounds();
+        snapManager.removeAllSnapConnectionsForFrame(id);
         window.setBounds(defaultBounds);
         configService.updateFrameBounds(id, defaultBounds);
-        configService.updateSnappedTo(id, []);
       }
     } else {
       const frames = configService.getFrames();
@@ -585,9 +585,9 @@ export class WindowManager {
             x: defaultBounds.x + offset,
             y: defaultBounds.y + offset,
           };
+          snapManager.removeAllSnapConnectionsForFrame(frame.id);
           window.setBounds(bounds);
           configService.updateFrameBounds(frame.id, bounds);
-          configService.updateSnappedTo(frame.id, []);
         }
       });
     }

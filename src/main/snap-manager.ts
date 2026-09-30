@@ -3,6 +3,13 @@ import type { BrowserWindow } from 'electron';
 import type { Bounds, SnapEdge } from '../shared/types';
 import { configService } from '../services/config-service';
 import { logService } from '../services/log-service';
+import {
+  addSnapTarget,
+  removeSnapReferencesTo,
+  removeSnapTarget,
+  selectBestSnapAdjustments,
+  type SnapAdjustment,
+} from './snap-geometry';
 
 interface EdgeInfo {
   frameId: string;
@@ -212,12 +219,8 @@ export class SnapManager {
     const bounds = window.getBounds();
     const edges = this.getEdges(id, bounds);
 
-    let snapX: number | null = null;
-    let snapY: number | null = null;
-    let alignX: number | null = null;
-    let alignY: number | null = null;
-    let bestSnapTarget: { targetId: string; edge: SnapEdge } | null = null;
-    let bestAlignTarget: { targetId: string; edge: SnapEdge } | null = null;
+    const xCandidates: SnapAdjustment[] = [];
+    const yCandidates: SnapAdjustment[] = [];
 
     for (const [otherId, otherWindow] of this.windows) {
       if (otherId === id) continue;
@@ -232,19 +235,13 @@ export class SnapManager {
 
           const distance = Math.abs(edge.position - otherEdge.position);
           if (distance <= threshold) {
-            if (edge.edge === 'left' || edge.edge === 'right') {
-              const adjustment = otherEdge.position - edge.position;
-              if (snapX === null || Math.abs(adjustment) < Math.abs(snapX)) {
-                snapX = adjustment;
-                bestSnapTarget = { targetId: otherId, edge: edge.edge };
-              }
-            } else {
-              const adjustment = otherEdge.position - edge.position;
-              if (snapY === null || Math.abs(adjustment) < Math.abs(snapY)) {
-                snapY = adjustment;
-                bestSnapTarget = { targetId: otherId, edge: edge.edge };
-              }
-            }
+            const candidate = {
+              targetId: otherId,
+              edge: edge.edge,
+              adjustment: otherEdge.position - edge.position,
+              kind: 'edge' as const,
+            };
+            (edge.edge === 'left' || edge.edge === 'right' ? xCandidates : yCandidates).push(candidate);
           }
         }
       }
@@ -256,10 +253,7 @@ export class SnapManager {
         const horizontalOverlap = bounds.x < otherBounds.x + otherBounds.width &&
                                   bounds.x + bounds.width > otherBounds.x;
         if (horizontalOverlap) {
-          if (alignY === null || Math.abs(topDiff) < Math.abs(alignY)) {
-            alignY = topDiff;
-            bestAlignTarget = { targetId: otherId, edge: 'align-top' };
-          }
+          yCandidates.push({ targetId: otherId, edge: 'align-top', adjustment: topDiff, kind: 'alignment' });
         }
       }
 
@@ -269,10 +263,7 @@ export class SnapManager {
         const horizontalOverlap = bounds.x < otherBounds.x + otherBounds.width &&
                                   bounds.x + bounds.width > otherBounds.x;
         if (horizontalOverlap) {
-          if (alignY === null || Math.abs(bottomDiff) < Math.abs(alignY)) {
-            alignY = bottomDiff;
-            bestAlignTarget = { targetId: otherId, edge: 'align-bottom' };
-          }
+          yCandidates.push({ targetId: otherId, edge: 'align-bottom', adjustment: bottomDiff, kind: 'alignment' });
         }
       }
 
@@ -282,10 +273,7 @@ export class SnapManager {
         const verticalOverlap = bounds.y < otherBounds.y + otherBounds.height &&
                                 bounds.y + bounds.height > otherBounds.y;
         if (verticalOverlap) {
-          if (alignX === null || Math.abs(leftDiff) < Math.abs(alignX)) {
-            alignX = leftDiff;
-            bestAlignTarget = { targetId: otherId, edge: 'align-left' };
-          }
+          xCandidates.push({ targetId: otherId, edge: 'align-left', adjustment: leftDiff, kind: 'alignment' });
         }
       }
 
@@ -295,31 +283,27 @@ export class SnapManager {
         const verticalOverlap = bounds.y < otherBounds.y + otherBounds.height &&
                                 bounds.y + bounds.height > otherBounds.y;
         if (verticalOverlap) {
-          if (alignX === null || Math.abs(rightDiff) < Math.abs(alignX)) {
-            alignX = rightDiff;
-            bestAlignTarget = { targetId: otherId, edge: 'align-right' };
-          }
+          xCandidates.push({ targetId: otherId, edge: 'align-right', adjustment: rightDiff, kind: 'alignment' });
         }
       }
     }
 
-    if (snapX !== null || snapY !== null || alignX !== null || alignY !== null) {
+    const { x: bestX, y: bestY } = selectBestSnapAdjustments(xCandidates, yCandidates);
+
+    if (bestX || bestY) {
       window.setPosition(
-        bounds.x + (snapX ?? 0) + (alignX ?? 0),
-        bounds.y + (snapY ?? 0) + (alignY ?? 0),
+        bounds.x + (bestX?.adjustment ?? 0),
+        bounds.y + (bestY?.adjustment ?? 0),
       );
 
-      // Record the edge snap connection immediately when applying the snap
-      if (bestSnapTarget) {
-        this.recordSnapConnection(id, bestSnapTarget.targetId, bestSnapTarget.edge);
+      if (bestX) {
+        this.recordSnapConnection(id, bestX.targetId, bestX.edge);
+      }
+      if (bestY) {
+        this.recordSnapConnection(id, bestY.targetId, bestY.edge);
       }
 
-      // Record the alignment snap connection
-      if (bestAlignTarget) {
-        this.recordSnapConnection(id, bestAlignTarget.targetId, bestAlignTarget.edge);
-      }
-
-      logService.debug('Window snapped', { id, snapX, snapY, alignX, alignY, edge: bestSnapTarget?.edge, alignEdge: bestAlignTarget?.edge });
+      logService.debug('Window snapped', { id, x: bestX, y: bestY });
     }
   }
 
@@ -333,12 +317,7 @@ export class SnapManager {
     if (!frame) return;
 
     // Record connection from fromId to toId
-    const existing = frame.snappedTo.find(s => s.frameId === toId);
-    if (existing) {
-      existing.edge = edge;  // Update edge
-    } else {
-      frame.snappedTo.push({ frameId: toId, edge });
-    }
+    frame.snappedTo = addSnapTarget(frame.snappedTo, toId, edge);
     configService.updateSnappedTo(fromId, frame.snappedTo);
 
     // Record reverse connection from toId to fromId
@@ -346,12 +325,7 @@ export class SnapManager {
     if (toFrame) {
       // Get the opposite edge for the reverse connection
       const oppositeEdge = this.getOppositeEdge(edge);
-      const reverseExisting = toFrame.snappedTo.find(s => s.frameId === fromId);
-      if (reverseExisting) {
-        reverseExisting.edge = oppositeEdge;  // Update edge
-      } else {
-        toFrame.snappedTo.push({ frameId: fromId, edge: oppositeEdge });
-      }
+      toFrame.snappedTo = addSnapTarget(toFrame.snappedTo, fromId, oppositeEdge);
       configService.updateSnappedTo(toId, toFrame.snappedTo);
     }
   }
@@ -517,13 +491,10 @@ export class SnapManager {
     if (!frame) return;
 
     if (edge) {
-      // Remove specific edge connection
-      frame.snappedTo = frame.snappedTo.filter(
-        s => !(s.frameId === toId && s.edge === edge)
-      );
+      frame.snappedTo = removeSnapTarget(frame.snappedTo, toId, edge);
     } else {
       // Remove all connections to that frame
-      frame.snappedTo = frame.snappedTo.filter(s => s.frameId !== toId);
+      frame.snappedTo = removeSnapTarget(frame.snappedTo, toId);
     }
     
     configService.updateSnappedTo(fromId, frame.snappedTo);
@@ -544,9 +515,9 @@ export class SnapManager {
     // Remove this frame from other frames' snap connections and notify them
     const allFrames = configService.getFrames();
     allFrames.forEach(otherFrame => {
-      const hadConnection = otherFrame.snappedTo.some(s => s.frameId === id);
-      if (hadConnection) {
-        otherFrame.snappedTo = otherFrame.snappedTo.filter(s => s.frameId !== id);
+      const remaining = removeSnapReferencesTo(otherFrame.snappedTo, id);
+      if (remaining.length !== otherFrame.snappedTo.length) {
+        otherFrame.snappedTo = remaining;
         configService.updateSnappedTo(otherFrame.id, otherFrame.snappedTo);
 
         // Notify the other frame about the snap status change
