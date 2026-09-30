@@ -1,10 +1,10 @@
-import type { SnapEdge, SnapTarget } from '../shared/types';
+import type { Bounds, SnapEdge, SnapTarget } from '../shared/types';
 
 export interface SnapAdjustment {
   targetId: string;
   edge: SnapEdge;
   adjustment: number;
-  kind: 'edge' | 'alignment';
+  kind: 'edge' | 'alignment' | 'alignment-assist';
 }
 
 export function selectBestSnapAdjustment(
@@ -30,10 +30,50 @@ export function selectBestSnapAdjustment(
 export function selectBestSnapAdjustments(
   xCandidates: readonly SnapAdjustment[],
   yCandidates: readonly SnapAdjustment[],
+  xAlignmentAssistCandidates: readonly SnapAdjustment[] = [],
+  yAlignmentAssistCandidates: readonly SnapAdjustment[] = [],
 ): { x: SnapAdjustment | null; y: SnapAdjustment | null } {
+  const bestXEdge = selectBestSnapAdjustment(xCandidates.filter(candidate => candidate.kind === 'edge'));
+  const bestYEdge = selectBestSnapAdjustment(yCandidates.filter(candidate => candidate.kind === 'edge'));
+
+  if (bestXEdge || bestYEdge) {
+    return {
+      x: bestXEdge ?? (bestYEdge
+        ? selectBestSnapAdjustment(xAlignmentAssistCandidates.filter(candidate => candidate.targetId === bestYEdge.targetId))
+        : null),
+      y: bestYEdge ?? (bestXEdge
+        ? selectBestSnapAdjustment(yAlignmentAssistCandidates.filter(candidate => candidate.targetId === bestXEdge.targetId))
+        : null),
+    };
+  }
+
   return {
     x: selectBestSnapAdjustment(xCandidates),
     y: selectBestSnapAdjustment(yCandidates),
+  };
+}
+
+export function createAlignmentAssistCandidate(
+  edgeSnap: SnapAdjustment,
+  bounds: Bounds,
+  targetBounds: Bounds,
+  threshold: number,
+): SnapAdjustment | null {
+  if (edgeSnap.kind !== 'edge') return null;
+
+  const sideBySide = edgeSnap.edge === 'left' || edgeSnap.edge === 'right';
+  const edge = sideBySide ? 'align-top' : 'align-left';
+  const adjustment = sideBySide
+    ? targetBounds.y - bounds.y
+    : targetBounds.x - bounds.x;
+
+  if (Math.abs(adjustment) > threshold) return null;
+
+  return {
+    targetId: edgeSnap.targetId,
+    edge,
+    adjustment,
+    kind: 'alignment-assist',
   };
 }
 

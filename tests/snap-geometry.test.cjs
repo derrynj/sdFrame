@@ -2,6 +2,7 @@ const assert = require('node:assert/strict');
 const test = require('node:test');
 const {
   addSnapTarget,
+  createAlignmentAssistCandidate,
   removeSnapReferencesTo,
   removeSnapTarget,
   selectBestSnapAdjustment,
@@ -31,7 +32,7 @@ test('returns null when no snap candidate is available', () => {
 });
 
 test('selects and preserves the best candidate independently on each axis', () => {
-  const xCandidate = { targetId: 'x-target', edge: 'right', adjustment: 2, kind: 'edge' };
+  const xCandidate = { targetId: 'x-target', edge: 'align-left', adjustment: 2, kind: 'alignment' };
   const yCandidate = { targetId: 'y-target', edge: 'align-top', adjustment: -1, kind: 'alignment' };
 
   assert.deepEqual(selectBestSnapAdjustments([xCandidate], [yCandidate]), {
@@ -68,4 +69,46 @@ test('removes one relation and all reverse references without touching others', 
     { frameId: 'legacy', edge: 'unknown' },
     { frameId: 'other', edge: 'left' },
   ]);
+});
+
+test('assists side-by-side snaps by aligning top edges within the assist range', () => {
+  const edgeSnap = { targetId: 'neighbor', edge: 'right', adjustment: 3, kind: 'edge' };
+  const bounds = { x: 100, y: 40, width: 200, height: 120 };
+  const targetBounds = { x: 303, y: 60, width: 200, height: 120 };
+
+  assert.deepEqual(createAlignmentAssistCandidate(edgeSnap, bounds, targetBounds, 24), {
+    targetId: 'neighbor',
+    edge: 'align-top',
+    adjustment: 20,
+    kind: 'alignment-assist',
+  });
+});
+
+test('assists stacked snaps by aligning left edges and declines large jumps', () => {
+  const edgeSnap = { targetId: 'neighbor', edge: 'bottom', adjustment: 2, kind: 'edge' };
+  const bounds = { x: 100, y: 200, width: 200, height: 120 };
+
+  assert.equal(createAlignmentAssistCandidate(
+    edgeSnap,
+    bounds,
+    { x: 120, y: 322, width: 200, height: 120 },
+    24,
+  ).edge, 'align-left');
+  assert.equal(createAlignmentAssistCandidate(
+    edgeSnap,
+    bounds,
+    { x: 130, y: 322, width: 200, height: 120 },
+    24,
+  ), null);
+});
+
+test('edge snaps take precedence over unrelated alignment candidates', () => {
+  const edgeCandidate = { targetId: 'edge-target', edge: 'right', adjustment: 3, kind: 'edge' };
+  const unrelatedAlignment = { targetId: 'other', edge: 'align-bottom', adjustment: 1, kind: 'alignment' };
+  const assist = { targetId: 'edge-target', edge: 'align-top', adjustment: 18, kind: 'alignment-assist' };
+
+  assert.deepEqual(selectBestSnapAdjustments([edgeCandidate], [unrelatedAlignment], [], [assist]), {
+    x: edgeCandidate,
+    y: assist,
+  });
 });

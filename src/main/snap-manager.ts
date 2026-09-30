@@ -5,11 +5,15 @@ import { configService } from '../services/config-service';
 import { logService } from '../services/log-service';
 import {
   addSnapTarget,
+  createAlignmentAssistCandidate,
   removeSnapReferencesTo,
   removeSnapTarget,
+  selectBestSnapAdjustment,
   selectBestSnapAdjustments,
   type SnapAdjustment,
 } from './snap-geometry';
+
+const ALIGNMENT_ASSIST_THRESHOLD = 24;
 
 interface EdgeInfo {
   frameId: string;
@@ -288,7 +292,30 @@ export class SnapManager {
       }
     }
 
-    const { x: bestX, y: bestY } = selectBestSnapAdjustments(xCandidates, yCandidates);
+    const bestHorizontalEdge = selectBestSnapAdjustment(xCandidates.filter(candidate => candidate.kind === 'edge'));
+    const bestVerticalEdge = selectBestSnapAdjustment(yCandidates.filter(candidate => candidate.kind === 'edge'));
+    const xAlignmentAssist = bestVerticalEdge
+      ? createAlignmentAssistCandidate(
+          bestVerticalEdge,
+          bounds,
+          this.windows.get(bestVerticalEdge.targetId)!.getBounds(),
+          ALIGNMENT_ASSIST_THRESHOLD,
+        )
+      : null;
+    const yAlignmentAssist = bestHorizontalEdge
+      ? createAlignmentAssistCandidate(
+          bestHorizontalEdge,
+          bounds,
+          this.windows.get(bestHorizontalEdge.targetId)!.getBounds(),
+          ALIGNMENT_ASSIST_THRESHOLD,
+        )
+      : null;
+    const { x: bestX, y: bestY } = selectBestSnapAdjustments(
+      xCandidates,
+      yCandidates,
+      xAlignmentAssist ? [xAlignmentAssist] : [],
+      yAlignmentAssist ? [yAlignmentAssist] : [],
+    );
 
     if (bestX || bestY) {
       window.setPosition(
