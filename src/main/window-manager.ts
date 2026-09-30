@@ -1,6 +1,7 @@
 import { BrowserWindow, screen, shell, dialog } from 'electron';
 import * as path from 'path';
 import * as crypto from 'crypto';
+import type { MessageBoxOptions } from 'electron';
 import type { Bounds, FrameConfig, SnapEdge } from '../shared/types';
 import { configService } from '../services/config-service';
 import { logService } from '../services/log-service';
@@ -155,6 +156,13 @@ export class WindowManager {
         sandbox: true,
         preload: path.join(__dirname, 'preload.js'),
       },
+    });
+
+    window.on('focus', () => {
+      if (this.settingsWindow && !this.settingsWindow.isDestroyed()) {
+        this.settingsWindow.setAlwaysOnTop(true);
+        this.settingsWindow.moveTop();
+      }
     });
 
     window.webContents.on('will-navigate', (event, navigationUrl) => {
@@ -532,7 +540,7 @@ export class WindowManager {
       return;
     }
 
-    const choice = dialog.showMessageBoxSync({
+    const options: MessageBoxOptions = {
       type: 'question',
       buttons: ['Remove', 'Cancel'],
       title: 'Remove Frame?',
@@ -540,7 +548,10 @@ export class WindowManager {
       detail: `Name: ${config.name || config.id.slice(0, 8)}\nURL: ${config.url}`,
       defaultId: 1, // Default to Cancel
       cancelId: 1,
-    });
+    };
+    const choice = this.settingsWindow && !this.settingsWindow.isDestroyed()
+      ? dialog.showMessageBoxSync(this.settingsWindow, options)
+      : dialog.showMessageBoxSync(options);
 
     if (choice === 0) {
       // User confirmed removal
@@ -645,12 +656,17 @@ export class WindowManager {
     if (frames.length === 0) return;
 
     if (frames.length > 6) {
-      void dialog.showMessageBox({
+      const options: MessageBoxOptions = {
         type: 'warning',
         title: 'Too many frames',
         message: 'Align and snap supports up to 6 enabled frames.',
         detail: 'Disable one or more frames and try again.',
-      });
+      };
+      if (this.settingsWindow && !this.settingsWindow.isDestroyed()) {
+        void dialog.showMessageBox(this.settingsWindow, options);
+      } else {
+        void dialog.showMessageBox(options);
+      }
       return;
     }
 
@@ -666,11 +682,16 @@ export class WindowManager {
       : Math.floor(workArea.width / frames.length);
 
     if (frameWidth < 100 || frameHeight < 100) {
-      void dialog.showMessageBox({
+      const options: MessageBoxOptions = {
         type: 'warning',
         title: 'Screen too small',
         message: 'There is not enough space to align these frames.',
-      });
+      };
+      if (this.settingsWindow && !this.settingsWindow.isDestroyed()) {
+        void dialog.showMessageBox(this.settingsWindow, options);
+      } else {
+        void dialog.showMessageBox(options);
+      }
       return;
     }
 
@@ -787,7 +808,7 @@ export class WindowManager {
     logService.info('Frames restored', { count: frames.length });
   }
 
-  async importConfig(config: unknown): Promise<void> {
+  async importConfig(config: unknown): Promise<AppConfig> {
     const importedConfig = configService.replace(config);
     this.usedColors.clear();
     importedConfig.frames.forEach(frame => this.usedColors.add(frame.color));
@@ -806,6 +827,7 @@ export class WindowManager {
       if (!window.isDestroyed()) window.destroy();
     }
     await this.restoreFrames();
+    return importedConfig;
   }
 
   openSettingsWindow(): void {

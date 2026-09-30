@@ -49,7 +49,7 @@ type SdFrameFullApi = {
   config: {
     get: () => Promise<{ success: boolean; config?: AppConfig }>;
     set: (p: { key: string; value: unknown }) => Promise<{ success: boolean; error?: string }>;
-    import: () => Promise<{ success: boolean; canceled?: boolean; error?: string }>;
+    import: () => Promise<{ success: boolean; canceled?: boolean; error?: string; config?: AppConfig }>;
     export: () => Promise<{ success: boolean; canceled?: boolean; error?: string }>;
   };
   page: {
@@ -62,6 +62,7 @@ type SdFrameFullApi = {
 };
 
 const sdFrame = window.sdFrame as unknown as SdFrameFullApi;
+let framesLoadSequence = 0;
 
 const elements = {
   addFrameForm: document.getElementById('add-frame-form') as HTMLFormElement,
@@ -92,21 +93,25 @@ const elements = {
 async function loadConfig(): Promise<void> {
   const response = await sdFrame.config.get();
   if (response && response.success && response.config) {
-    const config = response.config;
-    elements.snapEnabled.checked = config.snapEnabled;
-    elements.groupMovement.checked = config.groupMovementEnabled;
-    elements.snapThreshold.value = String(config.snapThreshold);
-    elements.layoutLocked.checked = config.layoutLocked;
-    elements.alwaysOnTop.checked = config.alwaysOnTop;
-    elements.logLevel.value = config.logLevel;
-    elements.frameWidth.value = String(config.frameSize.width);
-    elements.frameHeight.value = String(config.frameSize.height);
+    applyConfig(response.config);
   }
 }
 
+function applyConfig(config: AppConfig): void {
+  elements.snapEnabled.checked = config.snapEnabled;
+  elements.groupMovement.checked = config.groupMovementEnabled;
+  elements.snapThreshold.value = String(config.snapThreshold);
+  elements.layoutLocked.checked = config.layoutLocked;
+  elements.alwaysOnTop.checked = config.alwaysOnTop;
+  elements.logLevel.value = config.logLevel;
+  elements.frameWidth.value = String(config.frameSize.width);
+  elements.frameHeight.value = String(config.frameSize.height);
+}
+
 async function loadFrames(): Promise<void> {
+  const requestSequence = ++framesLoadSequence;
   const response = await sdFrame.frame.getAll();
-  if (response && response.success && response.frames) {
+  if (requestSequence === framesLoadSequence && response && response.success && response.frames) {
     renderFrames(response.frames as FrameConfig[]);
   }
 }
@@ -451,9 +456,10 @@ elements.importConfigBtn.addEventListener('click', async () => {
     elements.configFileStatus.textContent = response?.error || 'Import failed.';
     return;
   }
-  if (!response.canceled) {
-    await loadConfig();
-    await loadFrames();
+  if (!response.canceled && response.config) {
+    framesLoadSequence++;
+    applyConfig(response.config);
+    renderFrames(response.config.frames);
     elements.configFileStatus.textContent = 'Config imported.';
   }
 });

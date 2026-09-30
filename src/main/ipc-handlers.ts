@@ -233,9 +233,9 @@ export function registerIPCHandlers(): void {
 
     const fileContents = await fs.readFile(result.filePaths[0], 'utf-8');
     const importedConfig: unknown = JSON.parse(fileContents);
-    await windowManager.importConfig(importedConfig);
+    const config = await windowManager.importConfig(importedConfig);
     trayManager.updateContextMenu();
-    return { success: true };
+    return { success: true, config };
   });
 
   handleForSettings(IPC_CHANNELS.CONFIG_EXPORT, async () => {
