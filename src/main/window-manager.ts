@@ -19,8 +19,10 @@ export class WindowManager {
   private isQuitting = false;
   private intentionalClosing = new Set<string>();
   private reloadCounts = new Map<string, number>();
-  private notFoundReloadTimers = new Map<string, NodeJS.Timeout>();
-  private notFoundFrames = new Set<string>();
+  private autoReloadTimers = new Map<string, NodeJS.Timeout>();
+  private autoReloadCountdownIntervals = new Map<string, NodeJS.Timeout>();
+  private autoReloadDeadlines = new Map<string, number>();
+  private autoReloadFailures = new Map<string, string>();
   private notFoundMonitorInitialized = false;
 
   constructor() {
@@ -38,10 +40,10 @@ export class WindowManager {
           const frameId = this.getFrameIdByWebContentsId(details.webContentsId);
           if (frameId) {
             if (details.statusCode === 404) {
-              this.notFoundFrames.add(frameId);
-              this.scheduleNotFoundReload(frameId);
+              this.autoReloadFailures.set(frameId, 'HTTP 404');
+              this.scheduleAutoReload(frameId);
             } else {
-              this.notFoundFrames.delete(frameId);
+              this.autoReloadFailures.delete(frameId);
               this.clearNotFoundReload(frameId);
             }
           }
@@ -51,50 +53,119 @@ export class WindowManager {
     );
   }
 
-  private scheduleNotFoundReload(frameId: string): void {
-    if (this.notFoundReloadTimers.has(frameId)) return;
+  private scheduleAutoReload(frameId: string): void {
+    if (this.autoReloadTimers.has(frameId)) return;
     const config = configService.get();
     if (!config.autoReloadOn404) return;
     const delayMs = config.autoReload404IntervalSeconds * 1000;
+    this.autoReloadDeadlines.set(frameId, Date.now() + delayMs);
+    const failure = this.autoReloadFailures.get(frameId) ?? 'page load failure';
 
-    logService.info('Frame returned HTTP 404; retry scheduled', {
+    logService.info('Frame retry scheduled after load failure', {
       frameId,
+      failure,
       delayMs,
     });
+    this.updateNotFoundReloadCountdown(frameId);
+    this.autoReloadCountdownIntervals.set(
+      frameId,
+      setInterval(() => this.updateNotFoundReloadCountdown(frameId), 1000)
+    );
+
     const timer = setTimeout(() => {
-      this.notFoundReloadTimers.delete(frameId);
-      this.notFoundFrames.delete(frameId);
+      this.autoReloadTimers.delete(frameId);
+      this.clearNotFoundReloadCountdown(frameId);
+      this.autoReloadFailures.delete(frameId);
       const window = this.frameWindows.get(frameId);
       const frameConfig = configService.getFrame(frameId);
       if (!window || window.isDestroyed() || !frameConfig?.enabled) return;
 
-      logService.info('Retrying frame after HTTP 404', { frameId, url: frameConfig.url });
-      window.loadURL(frameConfig.url).catch(error => {
-        logService.error('Automatic 404 retry failed', {
+      logService.info('Retrying frame after load failure', { frameId, failure, url: frameConfig.url });
+      void (async () => {
+        await this.loadLoadingPage(window, frameConfig);
+        await window.loadURL(frameConfig.url);
+      })().catch(error => {
+        logService.error('Automatic retry failed', {
           frameId,
           error: error instanceof Error ? error.message : String(error),
         });
       });
     }, delayMs);
-    this.notFoundReloadTimers.set(frameId, timer);
+    this.autoReloadTimers.set(frameId, timer);
   }
 
   updateNotFoundAutoReloadSettings(): void {
-    for (const frameId of this.notFoundReloadTimers.keys()) {
+    for (const frameId of this.autoReloadTimers.keys()) {
       this.clearNotFoundReload(frameId);
     }
     if (!configService.get().autoReloadOn404) return;
-    for (const frameId of this.notFoundFrames) {
-      this.scheduleNotFoundReload(frameId);
+    for (const frameId of this.autoReloadFailures.keys()) {
+      this.scheduleAutoReload(frameId);
     }
   }
 
   private clearNotFoundReload(frameId: string): void {
-    const timer = this.notFoundReloadTimers.get(frameId);
+    const timer = this.autoReloadTimers.get(frameId);
     if (timer) {
       clearTimeout(timer);
-      this.notFoundReloadTimers.delete(frameId);
+      this.autoReloadTimers.delete(frameId);
     }
+    this.clearNotFoundReloadCountdown(frameId);
+  }
+
+  private clearNotFoundReloadCountdown(frameId: string): void {
+    const interval = this.autoReloadCountdownIntervals.get(frameId);
+    if (interval) {
+      clearInterval(interval);
+      this.autoReloadCountdownIntervals.delete(frameId);
+    }
+    const hadDeadline = this.autoReloadDeadlines.delete(frameId);
+    if (!hadDeadline) return;
+
+    const window = this.frameWindows.get(frameId);
+    if (!window || window.isDestroyed()) return;
+    window.webContents.executeJavaScript(`
+      (function() {
+        ['sdframe-reload-countdown', 'retry-countdown'].forEach(function(id) {
+          const status = document.getElementById(id);
+          if (status) {
+            status.hidden = true;
+            status.textContent = '';
+          }
+        });
+      })();
+    `).catch(error => {
+      logService.debug('Failed to clear retry countdown', {
+        frameId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    });
+  }
+
+  private updateNotFoundReloadCountdown(frameId: string): void {
+    const deadline = this.autoReloadDeadlines.get(frameId);
+    if (deadline === undefined) return;
+
+    const remainingSeconds = Math.max(0, Math.ceil((deadline - Date.now()) / 1000));
+    const window = this.frameWindows.get(frameId);
+    if (!window || window.isDestroyed()) return;
+    window.webContents.executeJavaScript(`
+      (function() {
+        const message = 'Retrying in ${remainingSeconds}s';
+        ['sdframe-reload-countdown', 'retry-countdown'].forEach(function(id) {
+          const status = document.getElementById(id);
+          if (status) {
+            status.textContent = message;
+            status.hidden = false;
+          }
+        });
+      })();
+    `).catch(error => {
+      logService.debug('Failed to update retry countdown', {
+        frameId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    });
   }
 
   private setupSnapStatusCallback(): void {
@@ -277,6 +348,10 @@ export class WindowManager {
         errorCode,
         errorDescription
       });
+      if (errorDescription === 'ERR_CONNECTION_TIMED_OUT') {
+        this.autoReloadFailures.set(config.id, 'connection timeout');
+        this.scheduleAutoReload(config.id);
+      }
       this.loadErrorPage(window, config.id, config.url, errorDescription);
     });
 
@@ -331,7 +406,7 @@ export class WindowManager {
     window.on('closed', () => {
       this.frameWindows.delete(config.id);
       this.intentionalClosing.delete(config.id);
-      this.notFoundFrames.delete(config.id);
+      this.autoReloadFailures.delete(config.id);
       this.clearNotFoundReload(config.id);
       snapManager.unregisterWindow(config.id);
     });
@@ -355,7 +430,6 @@ export class WindowManager {
         url: config.url,
         error: error instanceof Error ? error.message : String(error)
       });
-      this.loadErrorPage(window, config.id, config.url, 'Failed to load page');
     }
 
     // Ensure settings window stays on top after showing a new frame
@@ -424,6 +498,22 @@ export class WindowManager {
       #sdframe-drag-handle .frame-id {
         opacity: 0.8;
         font-weight: 500;
+      }
+      #sdframe-reload-countdown {
+        position: fixed;
+        z-index: 999998;
+        left: 50%;
+        bottom: 16px;
+        transform: translateX(-50%);
+        padding: 10px 16px;
+        border: 1px solid rgba(78, 205, 196, 0.35);
+        border-radius: 6px;
+        background: rgba(26, 26, 46, 0.92);
+        color: #8ce8e1;
+        font: 600 16px -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+        white-space: nowrap;
+        pointer-events: none;
+        -webkit-app-region: no-drag;
       }
       #sdframe-drag-handle .unsnap-btn {
         -webkit-app-region: no-drag;
@@ -507,6 +597,10 @@ export class WindowManager {
     `;
 
     const isInitiallySnapped = config.snappedTo && config.snappedTo.length > 0;
+    const retryDeadline = this.autoReloadDeadlines.get(config.id);
+    const retrySeconds = retryDeadline === undefined
+      ? null
+      : Math.max(0, Math.ceil((retryDeadline - Date.now()) / 1000));
 
     const js = `
       (function() {
@@ -516,6 +610,16 @@ export class WindowManager {
         const frameIdSpan = document.createElement('span');
         frameIdSpan.className = 'frame-id';
         frameIdSpan.textContent = ${JSON.stringify(config.name ?? config.id.slice(0, 8))};
+        let reloadCountdown = null;
+        if (!document.getElementById('retry-countdown')) {
+          reloadCountdown = document.createElement('div');
+          reloadCountdown.id = 'sdframe-reload-countdown';
+          reloadCountdown.setAttribute('role', 'status');
+          reloadCountdown.setAttribute('aria-live', 'polite');
+          reloadCountdown.hidden = ${retrySeconds === null};
+          reloadCountdown.textContent = ${JSON.stringify(retrySeconds === null ? '' : `Retrying in ${retrySeconds}s`)};
+          document.body.appendChild(reloadCountdown);
+        }
         const unsnapBtn = document.createElement('button');
         unsnapBtn.className = 'unsnap-btn';
         unsnapBtn.id = 'sdframe-unsnap';
@@ -609,8 +713,9 @@ export class WindowManager {
     const config = configService.getFrame(frameId);
     if (window && config) {
       this.clearNotFoundReload(frameId);
-      this.notFoundFrames.delete(frameId);
+      this.autoReloadFailures.delete(frameId);
       try {
+        await this.loadLoadingPage(window, config);
         await window.loadURL(config.url);
         logService.info('Retry successful', { frameId });
       } catch (error) {
@@ -618,7 +723,6 @@ export class WindowManager {
           frameId,
           error: error instanceof Error ? error.message : String(error)
         });
-        this.loadErrorPage(window, frameId, config.url, 'Failed to load page');
       }
     }
   }
@@ -674,9 +778,13 @@ export class WindowManager {
     if (window) {
       if (updates.url && updates.url !== currentConfig.url) {
         this.clearNotFoundReload(id);
-        this.notFoundFrames.delete(id);
-        window.loadURL(updates.url).catch(() => {
-          this.loadErrorPage(window, id, updates.url!, 'Failed to load page');
+        this.autoReloadFailures.delete(id);
+        window.loadURL(updates.url).catch(error => {
+          logService.error('Failed to load updated URL', {
+            frameId: id,
+            url: updates.url,
+            error: error instanceof Error ? error.message : String(error),
+          });
         });
       }
 
