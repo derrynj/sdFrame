@@ -80,6 +80,10 @@ body {
   font-weight: 700;
 }
 
+.disable-btn:hover {
+  background: #e55353 !important;
+}
+
 .loading-container {
   display: flex;
   flex-direction: column;

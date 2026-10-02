@@ -12,6 +12,7 @@
     <div class="frame-actions">
       <button class="unsnap-btn" type="button">Unsnap</button>
       <button class="minimize-btn" type="button" title="Minimize frame" aria-label="Minimize frame">−</button>
+      <button class="disable-btn" type="button" title="Disable frame" aria-label="Disable frame">×</button>
       <button class="menu-btn" type="button" title="Click for menu" aria-label="Open frame menu">⋮</button>
     </div>
   </div>
@@ -27,6 +28,7 @@
       const frameName = document.querySelector('.frame-id');
       const unsnapButton = document.querySelector('.unsnap-btn');
       const minimizeButton = document.querySelector('.minimize-btn');
+      const disableButton = document.querySelector('.disable-btn');
       const menuButton = document.querySelector('.menu-btn');
 
       frameName.textContent = params.name || frameId.slice(0, 8);
@@ -38,6 +40,9 @@
       });
       minimizeButton.addEventListener('click', function() {
         window.sdFrame.frame.minimize();
+      });
+      disableButton.addEventListener('click', function() {
+        window.sdFrame.frame.disable();
       });
       menuButton.addEventListener('click', function(event) {
         event.preventDefault();

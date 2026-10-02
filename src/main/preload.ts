@@ -43,6 +43,9 @@ const fullApi = {
     minimize: () =>
       ipcRenderer.invoke(IPC_CHANNELS.FRAME_MINIMIZE),
 
+    disable: () =>
+      ipcRenderer.invoke(IPC_CHANNELS.FRAME_DISABLE),
+
     enableAll: () =>
       ipcRenderer.invoke(IPC_CHANNELS.FRAME_ENABLE_ALL),
 
@@ -134,6 +137,7 @@ const restrictedApi = {
   frame: {
     unsnap: fullApi.frame.unsnap,
     minimize: fullApi.frame.minimize,
+    disable: fullApi.frame.disable,
   },
   tray: fullApi.tray,
   page: fullApi.page,

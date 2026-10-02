@@ -476,6 +476,24 @@ export class WindowManager {
         background: rgba(255,255,255,0.3);
         opacity: 1;
       }
+      #sdframe-drag-handle .disable-btn {
+        -webkit-app-region: no-drag;
+        width: 22px;
+        height: 20px;
+        padding: 0;
+        background: rgba(255,255,255,0.2);
+        border: none;
+        border-radius: 3px;
+        color: #fff;
+        font-size: 16px;
+        line-height: 16px;
+        cursor: pointer;
+        opacity: 0.8;
+      }
+      #sdframe-drag-handle .disable-btn:hover {
+        background: #e55353;
+        opacity: 1;
+      }
       #sdframe-drag-handle .frame-actions {
         display: flex;
         align-items: center;
@@ -508,11 +526,17 @@ export class WindowManager {
         minimizeBtn.textContent = '−';
         minimizeBtn.title = 'Minimize frame';
         minimizeBtn.setAttribute('aria-label', 'Minimize frame');
+        const disableBtn = document.createElement('button');
+        disableBtn.className = 'disable-btn';
+        disableBtn.textContent = '×';
+        disableBtn.title = 'Disable frame';
+        disableBtn.setAttribute('aria-label', 'Disable frame');
         const actions = document.createElement('div');
         actions.className = 'frame-actions';
         handle.appendChild(frameIdSpan);
         actions.appendChild(unsnapBtn);
         actions.appendChild(minimizeBtn);
+        actions.appendChild(disableBtn);
         actions.appendChild(menuBtn);
         handle.appendChild(actions);
         document.body.insertBefore(handle, document.body.firstChild);
@@ -534,6 +558,12 @@ export class WindowManager {
             event.preventDefault();
             event.stopPropagation();
             window.sdFrame.frame.minimize();
+          });
+
+          disableBtn.addEventListener('click', function(event) {
+            event.preventDefault();
+            event.stopPropagation();
+            window.sdFrame.frame.disable();
           });
 
           window.sdFrame.on.snapStatusChanged(function(data) {
@@ -710,10 +740,21 @@ export class WindowManager {
   }
 
   minimizeFrame(id: string): void {
-    const window = this.frameWindows.get(id);
-    if (window && !window.isDestroyed()) {
-      window.minimize();
-    }
+    this.getFrameGroup(id).forEach(frameId => {
+      const window = this.frameWindows.get(frameId);
+      if (window && !window.isDestroyed()) window.minimize();
+    });
+  }
+
+  disableFrame(id: string): void {
+    this.getFrameGroup(id).forEach(frameId => {
+      this.updateFrame(frameId, { enabled: false });
+    });
+    logService.info('Frame group disabled', { id });
+  }
+
+  private getFrameGroup(id: string): string[] {
+    return snapManager.getGroup(id);
   }
 
   setGroupHeight(id: string, height: number): number {

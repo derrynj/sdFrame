@@ -229,6 +229,27 @@ export function registerIPCHandlers(): void {
     }
   });
 
+  ipcMain.handle(IPC_CHANNELS.FRAME_DISABLE, async (event: IpcMainInvokeEvent) => {
+    const denied = rejectUnless(
+      isMainFrameSender(event) && windowManager.isKnownFrameSender(event.sender.id),
+      IPC_CHANNELS.FRAME_DISABLE
+    );
+    if (denied) return denied;
+
+    try {
+      const frameId = windowManager.getFrameIdByWebContentsId(event.sender.id);
+      if (!frameId) throw new Error('Frame window not found');
+      windowManager.disableFrame(frameId);
+      trayManager.updateContextMenu();
+      return { success: true };
+    } catch (error) {
+      logService.error(`IPC ${IPC_CHANNELS.FRAME_DISABLE} failed`, {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+    }
+  });
+
   handleValidatedForFrame(IPC_CHANNELS.PAGE_RETRY, PageRetryPayloadSchema, (v) => v.frameId, async (v) => {
     await windowManager.retryLoadUrl(v.frameId);
     return { success: true };
