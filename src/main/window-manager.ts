@@ -320,6 +320,10 @@ export class WindowManager {
       });
     });
 
+    window.on('restore', () => {
+      this.restoreFrameGroup(config.id);
+    });
+
     window.on('blur', () => {
       window.webContents.send(IPC_CHANNELS.FRAME_HIDE_BORDER);
     });
@@ -735,6 +739,7 @@ export class WindowManager {
   focusFrame(id: string): void {
     const window = this.frameWindows.get(id);
     if (window) {
+      this.restoreFrameGroup(id);
       window.focus();
     }
   }
@@ -743,6 +748,15 @@ export class WindowManager {
     this.getFrameGroup(id).forEach(frameId => {
       const window = this.frameWindows.get(frameId);
       if (window && !window.isDestroyed()) window.minimize();
+    });
+  }
+
+  private restoreFrameGroup(id: string): void {
+    this.getFrameGroup(id).forEach(frameId => {
+      const window = this.frameWindows.get(frameId);
+      if (window && !window.isDestroyed() && window.isMinimized()) {
+        window.restore();
+      }
     });
   }
 
