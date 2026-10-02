@@ -51,7 +51,7 @@ function migrateSnappedTo(snappedTo: string[] | SnapTarget[]): SnapTarget[] {
 /**
  * Checks if config needs migration and migrates if necessary.
  */
-function migrateConfig(config: any): AppConfig {
+function migrateConfig(config: any, dropInvalidUrls = true): AppConfig {
   let migratedConfig: any = { ...config };
   
   // Migrate frameSize if not present
@@ -60,25 +60,26 @@ function migrateConfig(config: any): AppConfig {
     migratedConfig.frameSize = getDefaultFrameSize();
   }
   
-  const migratedFrames = migratedConfig.frames.map((frame: any) => {
-    // Migrate snappedTo format if needed
-    if (frame.snappedTo && frame.snappedTo.length > 0 && typeof frame.snappedTo[0] === 'string') {
-      return {
-        ...frame,
-        snappedTo: migrateSnappedTo(frame.snappedTo),
-      };
+  if (Array.isArray(migratedConfig.frames)) {
+    const hasLegacySnapTargets = migratedConfig.frames.some((frame: any) =>
+      Array.isArray(frame?.snappedTo) &&
+      frame.snappedTo.length > 0 &&
+      typeof frame.snappedTo[0] === 'string'
+    );
+    if (hasLegacySnapTargets) {
+      migratedConfig.frames = migratedConfig.frames.map((frame: any) => {
+        if (frame.snappedTo && frame.snappedTo.length > 0 && typeof frame.snappedTo[0] === 'string') {
+          return { ...frame, snappedTo: migrateSnappedTo(frame.snappedTo) };
+        }
+        return frame;
+      });
+      logService.info('Migrated config from string[] to SnapTarget[] format');
     }
-    return frame;
-  });
-  
-  if (migratedFrames !== migratedConfig.frames) {
-    logService.info('Migrated config from string[] to SnapTarget[] format');
-    migratedConfig.frames = migratedFrames;
   }
 
   // Drop frames with non-http(s) URLs rather than failing the whole parse
   // (a single legacy file:// frame should not nuke the entire config).
-  if (Array.isArray(migratedConfig.frames)) {
+  if (dropInvalidUrls && Array.isArray(migratedConfig.frames)) {
     const droppedIds = new Set<string>();
     const before = migratedConfig.frames.length;
     migratedConfig.frames = migratedConfig.frames.filter((frame: any) => {
@@ -250,6 +251,28 @@ class ConfigService {
     logService.setLevel(validated.logLevel);
     this.saveSync();
     return this.get();
+  }
+
+  validateImport(config: unknown): AppConfig {
+    const validated = migrateConfig(config, false);
+    const frameIds = validated.frames.map(frame => frame.id);
+    if (new Set(frameIds).size !== frameIds.length) {
+      throw new Error('The config contains duplicate frame IDs.');
+    }
+    return validated;
+  }
+
+  backupCurrent(): string {
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const dir = path.dirname(this.configPath);
+    const baseName = path.basename(this.configPath, path.extname(this.configPath));
+    const backupPath = path.join(dir, `${baseName}.backup-${stamp}.json`);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+    fs.writeFileSync(backupPath, JSON.stringify(this.config, null, 2), 'utf-8');
+    logService.info('Created config backup before import', { backupPath });
+    return backupPath;
   }
 
   getFrames(): FrameConfig[] {

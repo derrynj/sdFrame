@@ -840,6 +840,31 @@ export class WindowManager {
     return importedConfig;
   }
 
+  async addImportedFrames(config: unknown, addedFrameIds: string[]): Promise<AppConfig> {
+    const importedConfig = configService.replace(config);
+    this.usedColors.clear();
+    importedConfig.frames.forEach(frame => this.usedColors.add(frame.color));
+
+    for (const window of this.frameWindows.values()) {
+      if (window.isDestroyed()) continue;
+      window.setResizable(!importedConfig.layoutLocked);
+      window.setMovable(!importedConfig.layoutLocked);
+      window.setAlwaysOnTop(importedConfig.alwaysOnTop);
+    }
+
+    for (const frameId of addedFrameIds) {
+      const frame = importedConfig.frames.find(candidate => candidate.id === frameId);
+      if (frame?.enabled) {
+        await this.openFrameWindow(frame);
+      }
+    }
+
+    snapManager.handleDisplayChange();
+    snapManager.notifyAllSnapStatuses();
+    this.bringSettingsToFront();
+    return importedConfig;
+  }
+
   openSettingsWindow(): void {
     if (this.settingsWindow && !this.settingsWindow.isDestroyed()) {
       if (this.settingsWindow.isMinimized()) {

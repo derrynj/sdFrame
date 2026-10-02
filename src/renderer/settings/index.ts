@@ -47,10 +47,24 @@ type SdFrameFullApi = {
     disableAll: () => Promise<{ success: boolean }>;
   };
   config: {
-    get: () => Promise<{ success: boolean; config?: AppConfig }>;
+    get: () => Promise<{ success: boolean; config?: AppConfig; error?: string }>;
     set: (p: { key: string; value: unknown }) => Promise<{ success: boolean; error?: string }>;
-    import: () => Promise<{ success: boolean; canceled?: boolean; error?: string; config?: AppConfig }>;
-    export: () => Promise<{ success: boolean; canceled?: boolean; error?: string }>;
+    import: () => Promise<{ success: boolean; canceled?: boolean; error?: string; config?: AppConfig; fileName?: string }>;
+    applyImport: (p: {
+      config: AppConfig;
+      selectedFrameIds: string[];
+      includeSettings: boolean;
+      mode: 'add' | 'replace';
+    }) => Promise<{
+      success: boolean;
+      error?: string;
+      config?: AppConfig;
+      importedFrameCount?: number;
+      mode?: 'add' | 'replace';
+      includedSettings?: boolean;
+      backupPath?: string;
+    }>;
+    export: () => Promise<{ success: boolean; canceled?: boolean; error?: string; fileName?: string }>;
   };
   page: {
     retry: (frameId: string) => Promise<{ success: boolean; error?: string }>;
@@ -88,7 +102,20 @@ const elements = {
   importConfigBtn: document.getElementById('import-config-btn') as HTMLButtonElement,
   exportConfigBtn: document.getElementById('export-config-btn') as HTMLButtonElement,
   configFileStatus: document.getElementById('config-file-status') as HTMLParagraphElement,
+  importDialog: document.getElementById('config-import-dialog') as HTMLDialogElement,
+  importFile: document.getElementById('config-import-file') as HTMLParagraphElement,
+  importSettings: document.getElementById('import-settings-checkbox') as HTMLInputElement,
+  importFrameList: document.getElementById('import-frame-list') as HTMLDivElement,
+  importFrameCount: document.getElementById('import-frame-count') as HTMLParagraphElement,
+  importDialogStatus: document.getElementById('import-dialog-status') as HTMLParagraphElement,
+  selectAllImportFrames: document.getElementById('select-all-import-frames') as HTMLButtonElement,
+  clearImportFrames: document.getElementById('clear-import-frames') as HTMLButtonElement,
+  cancelImportBtn: document.getElementById('cancel-import-btn') as HTMLButtonElement,
+  applyImportBtn: document.getElementById('apply-import-btn') as HTMLButtonElement,
 };
+
+let pendingImportConfig: AppConfig | null = null;
+let pendingImportFileName = '';
 
 async function loadConfig(): Promise<void> {
   const response = await sdFrame.config.get();
@@ -451,26 +478,179 @@ elements.disableAllBtn.addEventListener('click', async () => {
 
 elements.importConfigBtn.addEventListener('click', async () => {
   elements.configFileStatus.textContent = '';
-  const response = await sdFrame.config.import();
-  if (!response?.success) {
-    elements.configFileStatus.textContent = response?.error || 'Import failed.';
+  elements.importConfigBtn.disabled = true;
+  const originalText = elements.importConfigBtn.textContent;
+  elements.importConfigBtn.textContent = 'Choose config...';
+  try {
+    const response = await sdFrame.config.import();
+    if (!response?.success) {
+      elements.configFileStatus.textContent = response?.error || 'Could not open the config file.';
+      return;
+    }
+    if (response.canceled || !response.config) {
+      return;
+    }
+
+    pendingImportConfig = response.config;
+    pendingImportFileName = response.fileName || 'Selected config';
+    elements.importFile.textContent = `${pendingImportFileName} — config validated. Choose settings and frames below.`;
+    elements.importSettings.checked = true;
+    const addMode = document.querySelector<HTMLInputElement>('input[name="import-mode"][value="add"]');
+    if (addMode) addMode.checked = true;
+    elements.cancelImportBtn.disabled = false;
+    elements.importDialogStatus.textContent = '';
+    elements.importFrameList.innerHTML = response.config.frames.length
+      ? response.config.frames.map(frame => `
+        <label class="import-frame-option">
+          <input class="import-frame-checkbox" type="checkbox" value="${escapeHtml(frame.id)}" checked>
+          <span class="import-frame-details">
+            <span class="import-frame-name">${escapeHtml(frame.name || frame.id.slice(0, 8))}${frame.enabled ? '' : ' (disabled)'}</span>
+            <span class="import-frame-url">${escapeHtml(frame.url)}</span>
+          </span>
+        </label>
+      `).join('')
+      : '<p class="import-empty">This config contains no frames.</p>';
+    updateImportSelection();
+    elements.importDialog.showModal();
+  } catch (error) {
+    elements.configFileStatus.textContent = error instanceof Error ? error.message : 'Could not read the config file.';
+  } finally {
+    elements.importConfigBtn.disabled = false;
+    elements.importConfigBtn.textContent = originalText;
+  }
+});
+
+function getSelectedImportMode(): 'add' | 'replace' {
+  const selected = document.querySelector<HTMLInputElement>('input[name="import-mode"]:checked');
+  return selected?.value === 'replace' ? 'replace' : 'add';
+}
+
+function updateImportSelection(): void {
+  const checkedCount = elements.importFrameList.querySelectorAll<HTMLInputElement>('.import-frame-checkbox:checked').length;
+  const totalCount = elements.importFrameList.querySelectorAll<HTMLInputElement>('.import-frame-checkbox').length;
+  elements.importFrameCount.textContent = `${checkedCount} of ${totalCount} frame${totalCount === 1 ? '' : 's'} selected.`;
+  elements.applyImportBtn.disabled = !elements.importSettings.checked && checkedCount === 0;
+  elements.applyImportBtn.textContent = getSelectedImportMode() === 'replace'
+    ? 'Replace selected frames'
+    : 'Import selected';
+}
+
+elements.importFrameList.addEventListener('change', updateImportSelection);
+elements.importSettings.addEventListener('change', updateImportSelection);
+document.querySelectorAll<HTMLInputElement>('input[name="import-mode"]').forEach(input => {
+  input.addEventListener('change', updateImportSelection);
+});
+
+elements.selectAllImportFrames.addEventListener('click', () => {
+  elements.importFrameList.querySelectorAll<HTMLInputElement>('.import-frame-checkbox').forEach(input => {
+    input.checked = true;
+  });
+  updateImportSelection();
+});
+
+elements.clearImportFrames.addEventListener('click', () => {
+  elements.importFrameList.querySelectorAll<HTMLInputElement>('.import-frame-checkbox').forEach(input => {
+    input.checked = false;
+  });
+  updateImportSelection();
+});
+
+elements.cancelImportBtn.addEventListener('click', () => {
+  pendingImportConfig = null;
+  elements.importDialog.close();
+});
+
+elements.importDialog.addEventListener('cancel', () => {
+  pendingImportConfig = null;
+});
+
+elements.applyImportBtn.addEventListener('click', async () => {
+  if (!pendingImportConfig) {
+    elements.importDialogStatus.textContent = 'Choose a config file to continue.';
     return;
   }
-  if (!response.canceled && response.config) {
+  elements.applyImportBtn.disabled = true;
+  elements.cancelImportBtn.disabled = true;
+  elements.importDialogStatus.textContent = 'Checking current config...';
+  try {
+    const selectedFrameIds = Array.from(
+      elements.importFrameList.querySelectorAll<HTMLInputElement>('.import-frame-checkbox:checked'),
+      input => input.value
+    );
+    const mode = getSelectedImportMode();
+    const currentResponse = await sdFrame.config.get();
+    if (!currentResponse?.success || !currentResponse.config) {
+      elements.importDialogStatus.textContent = currentResponse?.error || 'Could not read your current config.';
+      return;
+    }
+    const currentFrameCount = currentResponse.config.frames.length;
+
+    if (mode === 'replace') {
+      const backupNotice = currentFrameCount > 0
+        ? ` Your current config will be backed up automatically first (${currentFrameCount} saved frame${currentFrameCount === 1 ? '' : 's'} found).`
+        : ' No current frames were found, so no frame backup will be created.';
+      const settingsNotice = elements.importSettings.checked
+        ? ' Global settings will also be replaced.'
+        : ' Your current global settings will be kept.';
+      const frameNotice = selectedFrameIds.length > 0
+        ? ` Replace your existing frames with ${selectedFrameIds.length} selected frame${selectedFrameIds.length === 1 ? '' : 's'} from "${pendingImportFileName}"?`
+        : ` Remove all existing frames using "${pendingImportFileName}"?`;
+      if (!window.confirm(`${frameNotice}${settingsNotice}${backupNotice}`)) {
+        elements.importDialogStatus.textContent = '';
+        return;
+      }
+    }
+
+    elements.importDialogStatus.textContent = 'Applying config...';
+    const response = await sdFrame.config.applyImport({
+      config: pendingImportConfig,
+      selectedFrameIds,
+      includeSettings: elements.importSettings.checked,
+      mode,
+    });
+    if (!response?.success || !response.config) {
+      elements.importDialogStatus.textContent = response?.error || 'Could not complete the import.';
+      return;
+    }
+
     framesLoadSequence++;
     applyConfig(response.config);
     renderFrames(response.config.frames);
-    elements.configFileStatus.textContent = 'Config imported.';
+    const count = response.importedFrameCount ?? 0;
+    const action = mode === 'replace' ? 'Replaced frames with' : 'Added';
+    const settingsResult = response.includedSettings ? ' Imported settings.' : '';
+    const backupResult = response.backupPath ? ` Backup saved to ${response.backupPath}.` : '';
+    elements.configFileStatus.textContent = `${action} ${count} frame${count === 1 ? '' : 's'}.${settingsResult}${backupResult}`;
+    pendingImportConfig = null;
+    elements.importDialog.close();
+  } catch (error) {
+    elements.importDialogStatus.textContent = error instanceof Error ? error.message : 'Could not complete the import.';
+  } finally {
+    if (elements.importDialog.open) {
+      elements.applyImportBtn.disabled = false;
+      elements.cancelImportBtn.disabled = false;
+      updateImportSelection();
+    }
   }
 });
 
 elements.exportConfigBtn.addEventListener('click', async () => {
   elements.configFileStatus.textContent = '';
-  const response = await sdFrame.config.export();
-  if (!response?.success) {
-    elements.configFileStatus.textContent = response?.error || 'Export failed.';
-  } else if (!response.canceled) {
-    elements.configFileStatus.textContent = 'Config exported.';
+  elements.exportConfigBtn.disabled = true;
+  const originalText = elements.exportConfigBtn.textContent;
+  elements.exportConfigBtn.textContent = 'Exporting...';
+  try {
+    const response = await sdFrame.config.export();
+    if (!response?.success) {
+      elements.configFileStatus.textContent = response?.error || 'Export failed.';
+    } else if (!response.canceled) {
+      elements.configFileStatus.textContent = `Config exported${response.fileName ? ` as ${response.fileName}` : ''}.`;
+    }
+  } catch (error) {
+    elements.configFileStatus.textContent = error instanceof Error ? error.message : 'Export failed.';
+  } finally {
+    elements.exportConfigBtn.disabled = false;
+    elements.exportConfigBtn.textContent = originalText;
   }
 });
 

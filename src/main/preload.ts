@@ -62,6 +62,14 @@ const fullApi = {
     import: () =>
       ipcRenderer.invoke(IPC_CHANNELS.CONFIG_IMPORT),
 
+    applyImport: (payload: {
+      config: unknown;
+      selectedFrameIds: string[];
+      includeSettings: boolean;
+      mode: 'add' | 'replace';
+    }) =>
+      ipcRenderer.invoke(IPC_CHANNELS.CONFIG_IMPORT_APPLY, payload),
+
     export: () =>
       ipcRenderer.invoke(IPC_CHANNELS.CONFIG_EXPORT),
   },

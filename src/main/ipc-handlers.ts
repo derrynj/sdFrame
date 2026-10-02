@@ -1,6 +1,8 @@
 import { ipcMain, app, BrowserWindow, dialog } from 'electron';
 import type { OpenDialogOptions, SaveDialogOptions } from 'electron';
 import * as fs from 'fs/promises';
+import * as path from 'path';
+import * as crypto from 'crypto';
 import type { IpcMainInvokeEvent } from 'electron';
 import { z } from 'zod';
 import { IPC_CHANNELS } from '../shared/constants';
@@ -20,6 +22,26 @@ import { windowManager } from './window-manager';
 import { configService } from '../services/config-service';
 import { logService } from '../services/log-service';
 import { trayManager } from './tray-manager';
+
+const ConfigImportApplySchema = z.object({
+  config: z.unknown(),
+  selectedFrameIds: z.array(z.string().uuid()).refine(ids => new Set(ids).size === ids.length),
+  includeSettings: z.boolean(),
+  mode: z.enum(['add', 'replace']),
+});
+
+function validateConfigForImport(config: unknown) {
+  try {
+    return configService.validateImport(config);
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      const issue = error.issues[0];
+      const location = issue.path.length > 0 ? issue.path.join('.') : 'config';
+      throw new Error(`Invalid sdFrame config at ${location}: ${issue.message}`);
+    }
+    throw error;
+  }
+}
 
 function assertSettingsSender(event: IpcMainInvokeEvent): boolean {
   if (windowManager.isSettingsSender(event.sender.id)) {
@@ -232,10 +254,74 @@ export function registerIPCHandlers(): void {
     }
 
     const fileContents = await fs.readFile(result.filePaths[0], 'utf-8');
-    const importedConfig: unknown = JSON.parse(fileContents);
-    const config = await windowManager.importConfig(importedConfig);
+    let importedConfig: unknown;
+    try {
+      importedConfig = JSON.parse(fileContents);
+    } catch {
+      throw new Error('This file is not valid JSON. Choose an sdFrame config file.');
+    }
+    const config = validateConfigForImport(importedConfig);
+    return {
+      success: true,
+      config,
+      fileName: path.basename(result.filePaths[0]),
+    };
+  });
+
+  handleValidatedForSettings(IPC_CHANNELS.CONFIG_IMPORT_APPLY, ConfigImportApplySchema, async payload => {
+    const imported = validateConfigForImport(payload.config);
+    const selectedIds = new Set(payload.selectedFrameIds);
+    const selectedFrames = imported.frames.filter(frame => selectedIds.has(frame.id));
+    if (selectedFrames.length !== selectedIds.size) {
+      throw new Error('The import selection contains a frame that is not in the selected file.');
+    }
+
+    const current = configService.get();
+    const importedFrameIds = new Set(selectedFrames.map(frame => frame.id));
+    const idMap = new Map<string, string>();
+    if (payload.mode === 'add') {
+      selectedFrames.forEach(frame => idMap.set(frame.id, crypto.randomUUID()));
+    } else {
+      selectedFrames.forEach(frame => idMap.set(frame.id, frame.id));
+    }
+    const frames = selectedFrames.map(frame => {
+      const id = idMap.get(frame.id);
+      if (!id) {
+        throw new Error('Could not prepare the selected frames for import.');
+      }
+      return {
+        ...frame,
+        id,
+        snappedTo: frame.snappedTo.flatMap(target => {
+          const mappedId = importedFrameIds.has(target.frameId)
+            ? idMap.get(target.frameId)
+            : undefined;
+          return mappedId ? [{ ...target, frameId: mappedId }] : [];
+        }),
+      };
+    });
+
+    const backupPath = payload.mode === 'replace' && current.frames.length > 0
+      ? configService.backupCurrent()
+      : undefined;
+    const settings = payload.includeSettings ? imported : current;
+    const nextConfig = {
+      ...settings,
+      version: current.version,
+      frames: payload.mode === 'replace' ? frames : [...current.frames, ...frames],
+    };
+    const config = payload.mode === 'add'
+      ? await windowManager.addImportedFrames(nextConfig, frames.map(frame => frame.id))
+      : await windowManager.importConfig(nextConfig);
     trayManager.updateContextMenu();
-    return { success: true, config };
+    return {
+      success: true,
+      config,
+      importedFrameCount: frames.length,
+      mode: payload.mode,
+      includedSettings: payload.includeSettings,
+      backupPath,
+    };
   });
 
   handleForSettings(IPC_CHANNELS.CONFIG_EXPORT, async () => {
@@ -255,7 +341,7 @@ export function registerIPCHandlers(): void {
     }
 
     await fs.writeFile(result.filePath, JSON.stringify(configService.get(), null, 2), 'utf-8');
-    return { success: true };
+    return { success: true, fileName: path.basename(result.filePath) };
   });
 
   handleForSettings(IPC_CHANNELS.APP_QUIT, async () => {

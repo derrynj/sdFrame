@@ -138,6 +138,40 @@
         <button id="export-config-btn" class="btn btn-secondary">Export Config</button>
       </div>
       <p id="config-file-status" class="config-file-status" role="status" aria-live="polite"></p>
+
+      <dialog id="config-import-dialog" class="config-import-dialog" aria-labelledby="config-import-title">
+        <h2 id="config-import-title">Choose what to import</h2>
+        <p id="config-import-file" class="import-help"></p>
+        <label class="import-settings-option">
+          <input type="checkbox" id="import-settings-checkbox" checked>
+          <span><strong>Import all settings</strong><small>Use the selected file's global settings.</small></span>
+        </label>
+        <fieldset class="import-mode-options">
+          <legend>Frames</legend>
+          <label>
+            <input type="radio" name="import-mode" value="add" checked>
+            Add to existing frames
+          </label>
+          <label>
+            <input type="radio" name="import-mode" value="replace">
+            Replace existing frames
+          </label>
+        </fieldset>
+        <div class="import-frame-heading">
+          <strong>Frames to import</strong>
+          <span>
+            <button id="select-all-import-frames" class="text-button" type="button">Select all</button>
+            <button id="clear-import-frames" class="text-button" type="button">Clear</button>
+          </span>
+        </div>
+        <p id="import-frame-count" class="import-help"></p>
+        <div id="import-frame-list" class="import-frame-list"></div>
+        <p id="import-dialog-status" class="import-dialog-status" role="status" aria-live="polite"></p>
+        <div class="import-dialog-actions">
+          <button id="cancel-import-btn" class="btn btn-secondary" type="button">Cancel</button>
+          <button id="apply-import-btn" class="btn btn-primary" type="button">Import selected</button>
+        </div>
+      </dialog>
     </section>
   </div>
 
