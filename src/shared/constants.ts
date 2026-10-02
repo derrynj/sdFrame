@@ -7,6 +7,8 @@ export const DEFAULT_CONFIG: AppConfig = {
   groupMovementEnabled: true,
   layoutLocked: false,
   alwaysOnTop: false,
+  autoReloadOn404: true,
+  autoReload404IntervalSeconds: 15,
   logLevel: 'info',
   frameSize: {
     width: 0, // Will be calculated as screen width/4 at runtime
@@ -50,6 +52,7 @@ export const IPC_CHANNELS = {
   FRAME_UPDATE: 'frame:update',
   FRAME_REMOVE: 'frame:remove',
   FRAME_FOCUS: 'frame:focus',
+  FRAME_MINIMIZE: 'frame:minimize',
   FRAME_RESET_LAYOUT: 'frame:reset-layout',
   FRAME_RESET_DIMENSIONS: 'frame:reset-dimensions',
   FRAME_SET_GROUP_HEIGHT: 'frame:set-group-height',
@@ -59,6 +62,11 @@ export const IPC_CHANNELS = {
   CONFIG_IMPORT: 'config:import',
   CONFIG_IMPORT_APPLY: 'config:import:apply',
   CONFIG_EXPORT: 'config:export',
+  SETTINGS_MINIMIZE: 'settings:minimize',
+  SETTINGS_HIDE: 'settings:hide',
+  APP_GET_VERSION: 'app:get-version',
+  DEBUG_VIEW_LOG: 'debug:view-log',
+  DEBUG_OPEN_DEVTOOLS: 'debug:open-devtools',
   APP_QUIT: 'app:quit',
   FRAME_LIST: 'frame:list',
   CONFIG_UPDATED: 'config:updated',

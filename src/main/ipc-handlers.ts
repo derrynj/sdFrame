@@ -1,4 +1,4 @@
-import { ipcMain, app, BrowserWindow, dialog } from 'electron';
+import { ipcMain, app, BrowserWindow, dialog, shell } from 'electron';
 import type { OpenDialogOptions, SaveDialogOptions } from 'electron';
 import * as fs from 'fs/promises';
 import * as path from 'path';
@@ -184,6 +184,11 @@ export function registerIPCHandlers(): void {
       case 'alwaysOnTop':
         windowManager.setAlwaysOnTop(v.value);
         break;
+      case 'autoReloadOn404':
+      case 'autoReload404IntervalSeconds':
+        configService.set(v.key, v.value);
+        windowManager.updateNotFoundAutoReloadSettings();
+        break;
       case 'frameSize':
         // When frame size changes, reset all frame dimensions
         configService.set('frameSize', v.value);
@@ -202,6 +207,26 @@ export function registerIPCHandlers(): void {
     windowManager.unsnapFrame(v.id, { edge: v.edge, all: v.all });
     trayManager.updateContextMenu();
     return { success: true };
+  });
+
+  ipcMain.handle(IPC_CHANNELS.FRAME_MINIMIZE, async (event: IpcMainInvokeEvent) => {
+    const denied = rejectUnless(
+      isMainFrameSender(event) && windowManager.isKnownFrameSender(event.sender.id),
+      IPC_CHANNELS.FRAME_MINIMIZE
+    );
+    if (denied) return denied;
+
+    try {
+      const frameId = windowManager.getFrameIdByWebContentsId(event.sender.id);
+      if (!frameId) throw new Error('Frame window not found');
+      windowManager.minimizeFrame(frameId);
+      return { success: true };
+    } catch (error) {
+      logService.error(`IPC ${IPC_CHANNELS.FRAME_MINIMIZE} failed`, {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+    }
   });
 
   handleValidatedForFrame(IPC_CHANNELS.PAGE_RETRY, PageRetryPayloadSchema, (v) => v.frameId, async (v) => {
@@ -342,6 +367,40 @@ export function registerIPCHandlers(): void {
 
     await fs.writeFile(result.filePath, JSON.stringify(configService.get(), null, 2), 'utf-8');
     return { success: true, fileName: path.basename(result.filePath) };
+  });
+
+  handleForSettings(IPC_CHANNELS.SETTINGS_MINIMIZE, async () => {
+    windowManager.minimizeSettingsWindow();
+    return { success: true };
+  });
+
+  handleForSettings(IPC_CHANNELS.SETTINGS_HIDE, async () => {
+    windowManager.hideSettingsWindow();
+    return { success: true };
+  });
+
+  handleForSettings(IPC_CHANNELS.APP_GET_VERSION, async () => ({
+    success: true,
+    version: app.getVersion(),
+  }));
+
+  handleForSettings(IPC_CHANNELS.DEBUG_VIEW_LOG, async () => {
+    const error = await shell.openPath(logService.getLogPath());
+    if (error) {
+      throw new Error(`Could not open the logfile: ${error}`);
+    }
+    return { success: true };
+  });
+
+  handleForSettings(IPC_CHANNELS.DEBUG_OPEN_DEVTOOLS, async () => {
+    const settingsWindow = BrowserWindow.getAllWindows().find(window =>
+      window.webContents.getURL().includes('settings/index.html')
+    );
+    if (!settingsWindow || settingsWindow.isDestroyed()) {
+      throw new Error('The Settings window is not available.');
+    }
+    settingsWindow.webContents.openDevTools({ mode: 'detach' });
+    return { success: true };
   });
 
   handleForSettings(IPC_CHANNELS.APP_QUIT, async () => {

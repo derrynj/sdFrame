@@ -1,4 +1,4 @@
-import { BrowserWindow, screen, shell, dialog } from 'electron';
+import { BrowserWindow, screen, shell, dialog, session } from 'electron';
 import * as path from 'path';
 import * as crypto from 'crypto';
 import type { MessageBoxOptions } from 'electron';
@@ -19,9 +19,82 @@ export class WindowManager {
   private isQuitting = false;
   private intentionalClosing = new Set<string>();
   private reloadCounts = new Map<string, number>();
+  private notFoundReloadTimers = new Map<string, NodeJS.Timeout>();
+  private notFoundFrames = new Set<string>();
+  private notFoundMonitorInitialized = false;
 
   constructor() {
     this.setupSnapStatusCallback();
+  }
+
+  initializeNotFoundAutoReload(): void {
+    if (this.notFoundMonitorInitialized) return;
+    this.notFoundMonitorInitialized = true;
+
+    session.defaultSession.webRequest.onHeadersReceived(
+      { urls: ['http://*/*', 'https://*/*'] },
+      (details, callback) => {
+        if (details.resourceType === 'mainFrame' && details.webContentsId !== undefined) {
+          const frameId = this.getFrameIdByWebContentsId(details.webContentsId);
+          if (frameId) {
+            if (details.statusCode === 404) {
+              this.notFoundFrames.add(frameId);
+              this.scheduleNotFoundReload(frameId);
+            } else {
+              this.notFoundFrames.delete(frameId);
+              this.clearNotFoundReload(frameId);
+            }
+          }
+        }
+        callback({});
+      }
+    );
+  }
+
+  private scheduleNotFoundReload(frameId: string): void {
+    if (this.notFoundReloadTimers.has(frameId)) return;
+    const config = configService.get();
+    if (!config.autoReloadOn404) return;
+    const delayMs = config.autoReload404IntervalSeconds * 1000;
+
+    logService.info('Frame returned HTTP 404; retry scheduled', {
+      frameId,
+      delayMs,
+    });
+    const timer = setTimeout(() => {
+      this.notFoundReloadTimers.delete(frameId);
+      this.notFoundFrames.delete(frameId);
+      const window = this.frameWindows.get(frameId);
+      const frameConfig = configService.getFrame(frameId);
+      if (!window || window.isDestroyed() || !frameConfig?.enabled) return;
+
+      logService.info('Retrying frame after HTTP 404', { frameId, url: frameConfig.url });
+      window.loadURL(frameConfig.url).catch(error => {
+        logService.error('Automatic 404 retry failed', {
+          frameId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      });
+    }, delayMs);
+    this.notFoundReloadTimers.set(frameId, timer);
+  }
+
+  updateNotFoundAutoReloadSettings(): void {
+    for (const frameId of this.notFoundReloadTimers.keys()) {
+      this.clearNotFoundReload(frameId);
+    }
+    if (!configService.get().autoReloadOn404) return;
+    for (const frameId of this.notFoundFrames) {
+      this.scheduleNotFoundReload(frameId);
+    }
+  }
+
+  private clearNotFoundReload(frameId: string): void {
+    const timer = this.notFoundReloadTimers.get(frameId);
+    if (timer) {
+      clearTimeout(timer);
+      this.notFoundReloadTimers.delete(frameId);
+    }
   }
 
   private setupSnapStatusCallback(): void {
@@ -165,8 +238,7 @@ export class WindowManager {
         this.settingsWindow.isVisible() &&
         !this.settingsWindow.isMinimized()
       ) {
-        this.settingsWindow.setAlwaysOnTop(true);
-        this.settingsWindow.moveTop();
+        setImmediate(() => this.bringSettingsToFront());
       }
     });
 
@@ -255,6 +327,8 @@ export class WindowManager {
     window.on('closed', () => {
       this.frameWindows.delete(config.id);
       this.intentionalClosing.delete(config.id);
+      this.notFoundFrames.delete(config.id);
+      this.clearNotFoundReload(config.id);
       snapManager.unregisterWindow(config.id);
     });
 
@@ -266,10 +340,11 @@ export class WindowManager {
 
   private async openFrameWindow(config: FrameConfig): Promise<BrowserWindow> {
     const window = this.createFrameWindow(config);
+    await this.loadLoadingPage(window, config);
+    window.show();
 
     try {
       await window.loadURL(config.url);
-      window.show(); // Show after loading
     } catch (error) {
       logService.error('Failed to load URL', {
         frameId: config.id,
@@ -277,7 +352,6 @@ export class WindowManager {
         error: error instanceof Error ? error.message : String(error)
       });
       this.loadErrorPage(window, config.id, config.url, 'Failed to load page');
-      window.show(); // Show error page
     }
 
     // Ensure settings window stays on top after showing a new frame
@@ -286,10 +360,17 @@ export class WindowManager {
     return window;
   }
 
-  private async loadLoadingPage(window: BrowserWindow): Promise<void> {
+  private async loadLoadingPage(window: BrowserWindow, config: FrameConfig): Promise<void> {
     const loadingPagePath = path.join(__dirname, '..', 'renderer', 'loading', 'index.html');
     try {
-      await window.loadFile(loadingPagePath);
+      await window.loadFile(loadingPagePath, {
+        query: {
+          frameId: config.id,
+          name: config.name ?? config.id.slice(0, 8),
+          color: config.color,
+          snapped: String(config.snappedTo.length > 0),
+        },
+      });
     } catch (error) {
       logService.warn('Failed to load loading page', {
         error: error instanceof Error ? error.message : String(error)
@@ -377,6 +458,30 @@ export class WindowManager {
         background: rgba(255,255,255,0.3);
         opacity: 1;
       }
+      #sdframe-drag-handle .minimize-btn {
+        -webkit-app-region: no-drag;
+        width: 22px;
+        height: 20px;
+        padding: 0;
+        background: rgba(255,255,255,0.2);
+        border: none;
+        border-radius: 3px;
+        color: #fff;
+        font-size: 16px;
+        line-height: 16px;
+        cursor: pointer;
+        opacity: 0.8;
+      }
+      #sdframe-drag-handle .minimize-btn:hover {
+        background: rgba(255,255,255,0.3);
+        opacity: 1;
+      }
+      #sdframe-drag-handle .frame-actions {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        -webkit-app-region: no-drag;
+      }
     `;
 
     const isInitiallySnapped = config.snappedTo && config.snappedTo.length > 0;
@@ -398,9 +503,18 @@ export class WindowManager {
         menuBtn.id = 'sdframe-menu-btn';
         menuBtn.textContent = '⋮';
         menuBtn.title = 'Click for menu';
+        const minimizeBtn = document.createElement('button');
+        minimizeBtn.className = 'minimize-btn';
+        minimizeBtn.textContent = '−';
+        minimizeBtn.title = 'Minimize frame';
+        minimizeBtn.setAttribute('aria-label', 'Minimize frame');
+        const actions = document.createElement('div');
+        actions.className = 'frame-actions';
         handle.appendChild(frameIdSpan);
-        handle.appendChild(unsnapBtn);
-        handle.appendChild(menuBtn);
+        actions.appendChild(unsnapBtn);
+        actions.appendChild(minimizeBtn);
+        actions.appendChild(menuBtn);
+        handle.appendChild(actions);
         document.body.insertBefore(handle, document.body.firstChild);
 
         unsnapBtn.style.display = ${isInitiallySnapped ? "'inline-block'" : "'none'"};
@@ -414,6 +528,12 @@ export class WindowManager {
             event.preventDefault();
             event.stopPropagation();
             window.sdFrame.tray.showMenu(event.clientX, event.clientY);
+          });
+
+          minimizeBtn.addEventListener('click', function(event) {
+            event.preventDefault();
+            event.stopPropagation();
+            window.sdFrame.frame.minimize();
           });
 
           window.sdFrame.on.snapStatusChanged(function(data) {
@@ -454,6 +574,8 @@ export class WindowManager {
     const window = this.frameWindows.get(frameId);
     const config = configService.getFrame(frameId);
     if (window && config) {
+      this.clearNotFoundReload(frameId);
+      this.notFoundFrames.delete(frameId);
       try {
         await window.loadURL(config.url);
         logService.info('Retry successful', { frameId });
@@ -474,8 +596,9 @@ export class WindowManager {
       this.settingsWindow.isVisible() &&
       !this.settingsWindow.isMinimized()
     ) {
-      this.settingsWindow.focus();
       this.settingsWindow.setAlwaysOnTop(true);
+      this.settingsWindow.moveTop();
+      this.settingsWindow.focus();
     }
   }
 
@@ -516,6 +639,8 @@ export class WindowManager {
 
     if (window) {
       if (updates.url && updates.url !== currentConfig.url) {
+        this.clearNotFoundReload(id);
+        this.notFoundFrames.delete(id);
         window.loadURL(updates.url).catch(() => {
           this.loadErrorPage(window, id, updates.url!, 'Failed to load page');
         });
@@ -581,6 +706,13 @@ export class WindowManager {
     const window = this.frameWindows.get(id);
     if (window) {
       window.focus();
+    }
+  }
+
+  minimizeFrame(id: string): void {
+    const window = this.frameWindows.get(id);
+    if (window && !window.isDestroyed()) {
+      window.minimize();
     }
   }
 
@@ -780,7 +912,7 @@ export class WindowManager {
     const windows: Array<{ window: BrowserWindow; config: FrameConfig }> = [];
     const loadingPromises = frames.map(async (frame) => {
       const window = this.createFrameWindow(frame);
-      await this.loadLoadingPage(window);
+      await this.loadLoadingPage(window, frame);
       windows.push({ window, config: frame });
       return window;
     });
@@ -820,6 +952,7 @@ export class WindowManager {
 
   async importConfig(config: unknown): Promise<AppConfig> {
     const importedConfig = configService.replace(config);
+    this.updateNotFoundAutoReloadSettings();
     this.usedColors.clear();
     importedConfig.frames.forEach(frame => this.usedColors.add(frame.color));
 
@@ -842,6 +975,7 @@ export class WindowManager {
 
   async addImportedFrames(config: unknown, addedFrameIds: string[]): Promise<AppConfig> {
     const importedConfig = configService.replace(config);
+    this.updateNotFoundAutoReloadSettings();
     this.usedColors.clear();
     importedConfig.frames.forEach(frame => this.usedColors.add(frame.color));
 
@@ -871,13 +1005,16 @@ export class WindowManager {
         this.settingsWindow.restore();
       }
       this.settingsWindow.show();
-      this.settingsWindow.focus();
+      setImmediate(() => this.bringSettingsToFront());
       return;
     }
 
     this.settingsWindow = new BrowserWindow({
-      width: 500,
-      height: 800,
+      width: 1060,
+      height: 850,
+      minWidth: 780,
+      minHeight: 640,
+      frame: false,
       resizable: true,
       minimizable: true,
       maximizable: false,
@@ -896,6 +1033,10 @@ export class WindowManager {
     this.settingsWindow.loadFile(settingsPath);
 
     const settingsWindow = this.settingsWindow;
+    settingsWindow.on('restore', () => {
+      setImmediate(() => this.bringSettingsToFront());
+    });
+
     settingsWindow.on('close', (event) => {
       if (!this.isQuitting) {
         event.preventDefault();
@@ -916,6 +1057,19 @@ export class WindowManager {
   closeSettingsWindow(): void {
     if (this.settingsWindow && !this.settingsWindow.isDestroyed()) {
       this.settingsWindow.close();
+    }
+  }
+
+  minimizeSettingsWindow(): void {
+    if (this.settingsWindow && !this.settingsWindow.isDestroyed()) {
+      this.settingsWindow.minimize();
+    }
+  }
+
+  hideSettingsWindow(): void {
+    if (this.settingsWindow && !this.settingsWindow.isDestroyed()) {
+      this.settingsWindow.hide();
+      logService.info('Settings window hidden to tray');
     }
   }
 

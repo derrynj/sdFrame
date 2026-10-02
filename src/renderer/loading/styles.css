@@ -14,6 +14,72 @@ body {
   overflow: hidden;
 }
 
+#sdframe-drag-handle {
+  position: fixed;
+  z-index: 999999;
+  top: 0;
+  right: 0;
+  left: 0;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 8px;
+  color: #fff;
+  font-size: 11px;
+  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.3);
+  opacity: 0.9;
+  -webkit-app-region: drag;
+}
+
+.frame-id {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  opacity: 0.85;
+  font-weight: 500;
+}
+
+.frame-actions {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  -webkit-app-region: no-drag;
+}
+
+.frame-actions button {
+  height: 20px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.2);
+  color: #fff;
+  cursor: pointer;
+  opacity: 0.85;
+}
+
+.frame-actions button:hover {
+  background: rgba(255, 255, 255, 0.3);
+  opacity: 1;
+}
+
+.unsnap-btn {
+  display: none;
+  font-size: 10px;
+}
+
+.minimize-btn {
+  width: 22px;
+  padding: 0 !important;
+  font-size: 16px;
+  line-height: 16px;
+}
+
+.menu-btn {
+  font-size: 14px;
+  font-weight: 700;
+}
+
 .loading-container {
   display: flex;
   flex-direction: column;

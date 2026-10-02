@@ -26,6 +26,8 @@ interface AppConfig {
   groupMovementEnabled: boolean;
   layoutLocked: boolean;
   alwaysOnTop: boolean;
+  autoReloadOn404: boolean;
+  autoReload404IntervalSeconds: number;
   logLevel: 'debug' | 'info' | 'warn' | 'error';
   frameSize: FrameSizeSettings;
   frames: FrameConfig[];
@@ -45,6 +47,17 @@ type SdFrameFullApi = {
     unsnap: (p: { id: string; edge?: string; all?: boolean }) => Promise<{ success: boolean; error?: string }>;
     enableAll: () => Promise<{ success: boolean }>;
     disableAll: () => Promise<{ success: boolean }>;
+  };
+  tray: {
+    showMenu: (x: number, y: number) => Promise<{ success: boolean; error?: string }>;
+  };
+  settings: {
+    minimize: () => Promise<{ success: boolean; error?: string }>;
+    hide: () => Promise<{ success: boolean; error?: string }>;
+  };
+  debug: {
+    viewLog: () => Promise<{ success: boolean; error?: string }>;
+    openDevTools: () => Promise<{ success: boolean; error?: string }>;
   };
   config: {
     get: () => Promise<{ success: boolean; config?: AppConfig; error?: string }>;
@@ -70,6 +83,7 @@ type SdFrameFullApi = {
     retry: (frameId: string) => Promise<{ success: boolean; error?: string }>;
   };
   app: {
+    getVersion: () => Promise<{ success: boolean; version?: string }>;
     quit: () => Promise<{ success: boolean }>;
   };
   getQueryParams: () => Record<string, string>;
@@ -90,6 +104,8 @@ const elements = {
   snapThreshold: document.getElementById('snap-threshold') as HTMLSelectElement,
   layoutLocked: document.getElementById('layout-locked') as HTMLInputElement,
   alwaysOnTop: document.getElementById('always-on-top') as HTMLInputElement,
+  autoReload404: document.getElementById('auto-reload-404') as HTMLInputElement,
+  autoReload404Interval: document.getElementById('auto-reload-404-interval') as HTMLSelectElement,
   logLevel: document.getElementById('log-level') as HTMLSelectElement,
   frameWidth: document.getElementById('frame-width') as HTMLInputElement,
   frameHeight: document.getElementById('frame-height') as HTMLInputElement,
@@ -102,6 +118,15 @@ const elements = {
   importConfigBtn: document.getElementById('import-config-btn') as HTMLButtonElement,
   exportConfigBtn: document.getElementById('export-config-btn') as HTMLButtonElement,
   configFileStatus: document.getElementById('config-file-status') as HTMLParagraphElement,
+  frameCount: document.getElementById('frame-count') as HTMLSpanElement,
+  frameSummary: document.getElementById('frame-summary') as HTMLSpanElement,
+  appVersion: document.getElementById('app-version') as HTMLSpanElement,
+  menuButton: document.getElementById('settings-menu-btn') as HTMLButtonElement,
+  minimizeButton: document.getElementById('settings-minimize-btn') as HTMLButtonElement,
+  closeButton: document.getElementById('settings-close-btn') as HTMLButtonElement,
+  viewLogButton: document.getElementById('view-log-btn') as HTMLButtonElement,
+  openDevConsoleButton: document.getElementById('open-dev-console-btn') as HTMLButtonElement,
+  debugStatus: document.getElementById('debug-status') as HTMLParagraphElement,
   importDialog: document.getElementById('config-import-dialog') as HTMLDialogElement,
   importFile: document.getElementById('config-import-file') as HTMLParagraphElement,
   importSettings: document.getElementById('import-settings-checkbox') as HTMLInputElement,
@@ -124,12 +149,22 @@ async function loadConfig(): Promise<void> {
   }
 }
 
+async function loadAppVersion(): Promise<void> {
+  const response = await sdFrame.app.getVersion();
+  if (response?.success && response.version) {
+    elements.appVersion.textContent = `v${response.version}`;
+  }
+}
+
 function applyConfig(config: AppConfig): void {
   elements.snapEnabled.checked = config.snapEnabled;
   elements.groupMovement.checked = config.groupMovementEnabled;
   elements.snapThreshold.value = String(config.snapThreshold);
   elements.layoutLocked.checked = config.layoutLocked;
   elements.alwaysOnTop.checked = config.alwaysOnTop;
+  elements.autoReload404.checked = config.autoReloadOn404;
+  elements.autoReload404Interval.value = String(config.autoReload404IntervalSeconds);
+  elements.autoReload404Interval.disabled = !config.autoReloadOn404;
   elements.logLevel.value = config.logLevel;
   elements.frameWidth.value = String(config.frameSize.width);
   elements.frameHeight.value = String(config.frameSize.height);
@@ -144,6 +179,10 @@ async function loadFrames(): Promise<void> {
 }
 
 function renderFrames(frames: FrameConfig[]): void {
+  const activeCount = frames.filter(frame => frame.enabled).length;
+  elements.frameCount.textContent = String(frames.length);
+  elements.frameSummary.textContent = `${activeCount} active · ${frames.length} total`;
+
   const previouslySelectedId = elements.groupHeightFrame.value;
   const enabledFrames = frames.filter(frame => frame.enabled);
   elements.groupHeightFrame.innerHTML = enabledFrames.map(frame =>
@@ -159,6 +198,7 @@ function renderFrames(frames: FrameConfig[]): void {
     if (selectedFrame.id !== previouslySelectedId) {
       elements.groupHeight.value = String(selectedFrame.bounds.height);
     }
+
   }
 
   if (frames.length === 0) {
@@ -395,6 +435,18 @@ elements.alwaysOnTop.addEventListener('change', async () => {
   await sdFrame.config.set({ key: 'alwaysOnTop', value: elements.alwaysOnTop.checked });
 });
 
+elements.autoReload404.addEventListener('change', async () => {
+  elements.autoReload404Interval.disabled = !elements.autoReload404.checked;
+  await sdFrame.config.set({ key: 'autoReloadOn404', value: elements.autoReload404.checked });
+});
+
+elements.autoReload404Interval.addEventListener('change', async () => {
+  await sdFrame.config.set({
+    key: 'autoReload404IntervalSeconds',
+    value: parseInt(elements.autoReload404Interval.value, 10),
+  });
+});
+
 elements.logLevel.addEventListener('change', async () => {
   const value = elements.logLevel.value as 'debug' | 'info' | 'warn' | 'error';
   await sdFrame.config.set({ key: 'logLevel', value });
@@ -476,6 +528,58 @@ elements.disableAllBtn.addEventListener('click', async () => {
   await loadFrames();
 });
 
+elements.menuButton.addEventListener('click', async () => {
+  const bounds = elements.menuButton.getBoundingClientRect();
+  const response = await sdFrame.tray.showMenu(Math.round(bounds.left), Math.round(bounds.bottom));
+  if (!response?.success) {
+    elements.configFileStatus.textContent = response?.error || 'Could not open the menu.';
+  }
+});
+
+elements.minimizeButton.addEventListener('click', async () => {
+  const response = await sdFrame.settings.minimize();
+  if (!response?.success) {
+    elements.configFileStatus.textContent = response?.error || 'Could not minimize the window.';
+  }
+});
+
+elements.closeButton.addEventListener('click', async () => {
+  const response = await sdFrame.settings.hide();
+  if (!response?.success) {
+    elements.configFileStatus.textContent = response?.error || 'Could not close the window to the tray.';
+  }
+});
+
+elements.viewLogButton.addEventListener('click', async () => {
+  elements.debugStatus.textContent = '';
+  elements.viewLogButton.disabled = true;
+  try {
+    const response = await sdFrame.debug.viewLog();
+    elements.debugStatus.textContent = response?.success
+      ? 'Opening logfile…'
+      : response?.error || 'Could not open the logfile.';
+  } catch (error) {
+    elements.debugStatus.textContent = error instanceof Error ? error.message : 'Could not open the logfile.';
+  } finally {
+    elements.viewLogButton.disabled = false;
+  }
+});
+
+elements.openDevConsoleButton.addEventListener('click', async () => {
+  elements.debugStatus.textContent = '';
+  elements.openDevConsoleButton.disabled = true;
+  try {
+    const response = await sdFrame.debug.openDevTools();
+    elements.debugStatus.textContent = response?.success
+      ? 'Developer console opened.'
+      : response?.error || 'Could not open the developer console.';
+  } catch (error) {
+    elements.debugStatus.textContent = error instanceof Error ? error.message : 'Could not open the developer console.';
+  } finally {
+    elements.openDevConsoleButton.disabled = false;
+  }
+});
+
 elements.importConfigBtn.addEventListener('click', async () => {
   elements.configFileStatus.textContent = '';
   elements.importConfigBtn.disabled = true;
@@ -530,9 +634,7 @@ function updateImportSelection(): void {
   const totalCount = elements.importFrameList.querySelectorAll<HTMLInputElement>('.import-frame-checkbox').length;
   elements.importFrameCount.textContent = `${checkedCount} of ${totalCount} frame${totalCount === 1 ? '' : 's'} selected.`;
   elements.applyImportBtn.disabled = !elements.importSettings.checked && checkedCount === 0;
-  elements.applyImportBtn.textContent = getSelectedImportMode() === 'replace'
-    ? 'Replace selected frames'
-    : 'Import selected';
+  elements.applyImportBtn.textContent = 'Import selected';
 }
 
 elements.importFrameList.addEventListener('change', updateImportSelection);
@@ -656,3 +758,4 @@ elements.exportConfigBtn.addEventListener('click', async () => {
 
 loadConfig();
 loadFrames();
+loadAppVersion();

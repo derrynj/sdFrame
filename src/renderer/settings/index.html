@@ -4,176 +4,261 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:;">
-  <title>sdFrame Settings</title>
+  <title>sdFrame</title>
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-  <div class="container">
-    <header>
-      <h1>sdFrame</h1>
+  <div class="app-shell">
+    <header class="app-topbar">
+      <div class="app-titlebar" aria-label="sdFrame window">
+        <span>sdFrame</span>
+        <span id="app-version" class="app-version"></span>
+      </div>
+      <div class="window-actions">
+        <button id="settings-menu-btn" class="window-action menu-action" type="button" aria-label="Open sdFrame menu" title="Menu">
+          <span></span><span></span><span></span>
+        </button>
+        <button id="settings-minimize-btn" class="window-action" type="button" aria-label="Minimize to taskbar" title="Minimize">
+          <span class="minimize-icon" aria-hidden="true"></span>
+        </button>
+        <button id="settings-close-btn" class="window-action close-action" type="button" aria-label="Close to tray" title="Close to tray">
+          <span aria-hidden="true">×</span>
+        </button>
+      </div>
     </header>
 
-    <section class="add-frame">
-      <h2>Add New Frame</h2>
-      <form id="add-frame-form">
-        <div class="form-group">
-          <label for="name-input">Name (optional)</label>
-          <input 
-            type="text" 
-            id="name-input" 
-            placeholder="Frame name"
-          >
+    <main class="main-content">
+      <header class="page-header">
+        <div>
+          <h1>sdFrame</h1>
         </div>
-        <div class="form-group">
-          <label for="url-input">URL</label>
-          <input 
-            type="url" 
-            id="url-input" 
-            placeholder="https://example.com" 
-            required
-          >
+        <div class="workspace-summary">
+          <span class="summary-indicator" aria-hidden="true"></span>
+          <span id="frame-summary">Loading frames</span>
         </div>
-        <button type="submit" class="btn btn-primary">Add Frame</button>
-      </form>
-    </section>
+      </header>
 
-    <section class="frames-list">
-      <h2>Frames</h2>
-      <div class="bulk-actions">
-        <button id="enable-all-btn" class="btn btn-secondary">Enable All</button>
-        <button id="disable-all-btn" class="btn btn-secondary">Disable All</button>
-      </div>
-      <div id="frames-container">
-        <p class="no-frames">No frames configured</p>
-      </div>
-    </section>
+      <div class="workspace-grid">
+        <div class="primary-column">
+          <section class="panel frames-panel" id="frames">
+            <div class="panel-heading">
+              <div>
+                <div class="heading-with-count">
+                  <h2>Frames</h2>
+                  <span id="frame-count" class="count-badge">0</span>
+                </div>
+                <p class="panel-description">Your connected websites and dashboards.</p>
+              </div>
+              <div class="bulk-actions">
+                <button id="enable-all-btn" class="btn btn-secondary btn-quiet">Enable all</button>
+                <button id="disable-all-btn" class="btn btn-secondary btn-quiet">Disable all</button>
+              </div>
+            </div>
+            <div id="frames-container">
+              <p class="no-frames">No frames configured</p>
+            </div>
+            <div class="add-frame-inline" id="add-frame">
+              <div class="add-frame-inline-heading">
+                <span class="add-mark" aria-hidden="true">+</span>
+                <div>
+                  <h3>Add a frame</h3>
+                  <p class="panel-description">Bring another website into your workspace.</p>
+                </div>
+              </div>
+              <form id="add-frame-form" class="add-frame-form">
+                <div class="form-group">
+                  <label for="name-input">Name <span class="optional-label">OPTIONAL</span></label>
+                  <input type="text" id="name-input" placeholder="e.g. Project dashboard">
+                </div>
+                <div class="form-group">
+                  <label for="url-input">Website URL</label>
+                  <input type="url" id="url-input" placeholder="https://example.com" required>
+                </div>
+                <button type="submit" class="btn btn-primary add-frame-submit">Add frame <span aria-hidden="true">↗</span></button>
+              </form>
+            </div>
+          </section>
+        </div>
 
-    <section class="global-settings">
-      <h2>Settings</h2>
-      
-      <div class="setting-row">
-        <label>
-          <input type="checkbox" id="snap-enabled">
-          Enable Snapping
-        </label>
-      </div>
+        <div class="secondary-column">
+          <section class="panel preferences-panel" id="preferences">
+            <div class="panel-heading">
+              <div>
+                <p class="eyebrow">BEHAVIOUR</p>
+                <h2>Preferences</h2>
+              </div>
+            </div>
 
-      <div class="setting-row">
-        <label>
-          <input type="checkbox" id="group-movement">
-          Group Movement
-        </label>
-      </div>
+            <label class="setting-toggle">
+              <span class="toggle-copy"><strong>Window snapping</strong><small>Align frames when they are moved close together.</small></span>
+              <input type="checkbox" id="snap-enabled">
+              <span class="toggle-track" aria-hidden="true"></span>
+            </label>
+            <label class="setting-toggle">
+              <span class="toggle-copy"><strong>Group movement</strong><small>Move snapped frames as one group.</small></span>
+              <input type="checkbox" id="group-movement">
+              <span class="toggle-track" aria-hidden="true"></span>
+            </label>
+            <label class="setting-toggle">
+              <span class="toggle-copy"><strong>Lock layout</strong><small>Prevent frames from being moved or resized.</small></span>
+              <input type="checkbox" id="layout-locked">
+              <span class="toggle-track" aria-hidden="true"></span>
+            </label>
+            <label class="setting-toggle">
+              <span class="toggle-copy"><strong>Always on top</strong><small>Keep frame windows above other apps.</small></span>
+              <input type="checkbox" id="always-on-top">
+              <span class="toggle-track" aria-hidden="true"></span>
+            </label>
+            <label class="setting-toggle">
+              <span class="toggle-copy"><strong>Retry pages after 404</strong><small>Automatically reload a frame that returns not found.</small></span>
+              <input type="checkbox" id="auto-reload-404">
+              <span class="toggle-track" aria-hidden="true"></span>
+            </label>
 
-      <div class="setting-row">
-        <label for="snap-threshold">Snap Threshold</label>
-        <select id="snap-threshold">
-          <option value="5">5px</option>
-          <option value="10">10px</option>
-          <option value="15">15px</option>
-          <option value="20">20px</option>
-          <option value="25">25px</option>
-          <option value="30">30px</option>
-        </select>
-      </div>
+            <div class="setting-row select-row">
+              <label for="snap-threshold">Snap threshold</label>
+              <select id="snap-threshold">
+                <option value="5">5 px</option>
+                <option value="10">10 px</option>
+                <option value="15">15 px</option>
+                <option value="20">20 px</option>
+                <option value="25">25 px</option>
+                <option value="30">30 px</option>
+              </select>
+            </div>
+            <div class="setting-row select-row">
+              <label for="auto-reload-404-interval">404 retry interval</label>
+              <select id="auto-reload-404-interval">
+                <option value="15">15 seconds</option>
+                <option value="30">30 seconds</option>
+                <option value="60">1 minute</option>
+                <option value="120">2 minutes</option>
+                <option value="300">5 minutes</option>
+              </select>
+            </div>
+          </section>
 
-      <div class="setting-row">
-        <label>
-          <input type="checkbox" id="layout-locked">
-          Lock Layout
-        </label>
-      </div>
+          <section class="panel layout-panel" id="layout">
+            <div class="panel-heading">
+              <div>
+                <p class="eyebrow">SIZING</p>
+                <h2>Layout</h2>
+              </div>
+            </div>
+            <p class="group-label">Default frame size</p>
+            <div class="dimension-fields">
+              <label for="frame-width">Width <span>px</span></label>
+              <input type="number" id="frame-width" min="100" max="5000" step="10">
+              <label for="frame-height">Height <span>px</span></label>
+              <input type="number" id="frame-height" min="100" max="5000" step="10">
+            </div>
+            <div class="group-height-settings">
+              <p class="group-label">Snapped group height</p>
+              <label class="field-label" for="group-height-frame">Frame in group</label>
+              <select id="group-height-frame"></select>
+              <div class="group-height-controls">
+                <label class="field-label" for="group-height-input">Height <span>px</span></label>
+                <div class="group-height-input-row">
+                  <input type="number" id="group-height-input" min="100" max="5000" step="10">
+                  <button id="apply-group-height-btn" class="btn btn-secondary">Apply</button>
+                </div>
+              </div>
+              <p id="group-height-status" class="inline-status" role="status" aria-live="polite"></p>
+            </div>
+            <div class="reset-actions">
+              <button id="reset-dimensions-btn" class="btn btn-secondary">Reset dimensions</button>
+              <button id="reset-all-btn" class="btn btn-secondary">Reset positions</button>
+            </div>
+          </section>
 
-      <div class="setting-row">
-        <label>
-          <input type="checkbox" id="always-on-top">
-          Always on Top
-        </label>
-      </div>
+          <section class="panel data-panel" id="config-files">
+            <div class="panel-heading">
+              <div>
+                <p class="eyebrow">PORTABILITY</p>
+                <h2>Import &amp; export</h2>
+              </div>
+            </div>
+            <p class="panel-description">Move your workspace or keep a backup of your setup.</p>
+            <div class="config-file-actions">
+              <button id="import-config-btn" class="btn btn-secondary"><span aria-hidden="true">↓</span> Import config</button>
+              <button id="export-config-btn" class="btn btn-secondary"><span aria-hidden="true">↑</span> Export config</button>
+            </div>
+            <p id="config-file-status" class="inline-status" role="status" aria-live="polite"></p>
+          </section>
 
-      <div class="setting-row">
-        <label for="log-level">Log Level</label>
-        <select id="log-level">
-          <option value="debug">Debug</option>
-          <option value="info">Info</option>
-          <option value="warn">Warn</option>
-          <option value="error">Error</option>
-        </select>
-      </div>
-
-      <div class="setting-row">
-        <label for="frame-width">Frame Width</label>
-        <input type="number" id="frame-width" min="100" max="5000" step="10">
-      </div>
-
-      <div class="setting-row">
-        <label for="frame-height">Frame Height</label>
-        <input type="number" id="frame-height" min="100" max="5000" step="10">
-      </div>
-
-      <h2 class="subsection-title">Snapped Group Height</h2>
-      <div class="setting-row group-height-row">
-        <label for="group-height-frame">Frame in snapped group</label>
-        <select id="group-height-frame"></select>
-      </div>
-      <div class="setting-row group-height-row">
-        <label for="group-height-input">Height</label>
-        <div class="group-height-controls">
-          <input type="number" id="group-height-input" min="100" max="5000" step="10">
-          <button id="apply-group-height-btn" class="btn btn-primary">Apply</button>
+          <section class="panel debug-panel" id="debug">
+            <div class="panel-heading">
+              <div>
+                <p class="eyebrow">DEVELOPER TOOLS</p>
+                <h2>Debug</h2>
+              </div>
+            </div>
+            <div class="advanced-setting">
+              <label for="log-level">Log level</label>
+              <select id="log-level">
+                <option value="debug">Debug</option>
+                <option value="info">Info</option>
+                <option value="warn">Warn</option>
+                <option value="error">Error</option>
+              </select>
+            </div>
+            <div class="debug-actions">
+              <button id="view-log-btn" class="btn btn-secondary" type="button">View logfile</button>
+              <button id="open-dev-console-btn" class="btn btn-secondary" type="button">Open Dev Console</button>
+            </div>
+            <p id="debug-status" class="inline-status" role="status" aria-live="polite"></p>
+          </section>
         </div>
       </div>
-      <p id="group-height-status" class="config-file-status" role="status" aria-live="polite"></p>
-
-      <div class="setting-row">
-        <button id="reset-dimensions-btn" class="btn btn-secondary">Reset All Dimensions</button>
-      </div>
-
-      <div class="setting-row">
-        <button id="reset-all-btn" class="btn btn-secondary">Reset All Positions</button>
-      </div>
-
-      <div class="setting-row config-file-actions">
-        <button id="import-config-btn" class="btn btn-secondary">Import Config</button>
-        <button id="export-config-btn" class="btn btn-secondary">Export Config</button>
-      </div>
-      <p id="config-file-status" class="config-file-status" role="status" aria-live="polite"></p>
-
-      <dialog id="config-import-dialog" class="config-import-dialog" aria-labelledby="config-import-title">
-        <h2 id="config-import-title">Choose what to import</h2>
-        <p id="config-import-file" class="import-help"></p>
-        <label class="import-settings-option">
-          <input type="checkbox" id="import-settings-checkbox" checked>
-          <span><strong>Import all settings</strong><small>Use the selected file's global settings.</small></span>
-        </label>
-        <fieldset class="import-mode-options">
-          <legend>Frames</legend>
-          <label>
-            <input type="radio" name="import-mode" value="add" checked>
-            Add to existing frames
-          </label>
-          <label>
-            <input type="radio" name="import-mode" value="replace">
-            Replace existing frames
-          </label>
-        </fieldset>
-        <div class="import-frame-heading">
-          <strong>Frames to import</strong>
-          <span>
-            <button id="select-all-import-frames" class="text-button" type="button">Select all</button>
-            <button id="clear-import-frames" class="text-button" type="button">Clear</button>
-          </span>
-        </div>
-        <p id="import-frame-count" class="import-help"></p>
-        <div id="import-frame-list" class="import-frame-list"></div>
-        <p id="import-dialog-status" class="import-dialog-status" role="status" aria-live="polite"></p>
-        <div class="import-dialog-actions">
-          <button id="cancel-import-btn" class="btn btn-secondary" type="button">Cancel</button>
-          <button id="apply-import-btn" class="btn btn-primary" type="button">Import selected</button>
-        </div>
-      </dialog>
-    </section>
+    </main>
   </div>
+
+  <dialog id="config-import-dialog" class="config-import-dialog" aria-labelledby="config-import-title">
+    <div class="dialog-header">
+      <div class="dialog-mark" aria-hidden="true">↓</div>
+      <div>
+        <p class="eyebrow">CONFIG IMPORT</p>
+        <h2 id="config-import-title">Choose what to import</h2>
+      </div>
+      <button id="close-import-dialog" class="icon-button" type="button" aria-label="Close import dialog">×</button>
+    </div>
+    <p id="config-import-file" class="import-help"></p>
+    <fieldset class="import-mode-options">
+      <legend>Frames</legend>
+      <label class="mode-option">
+        <input type="radio" name="import-mode" value="add" checked>
+        <span><strong>Add to existing</strong><small>Keep your current frames</small></span>
+      </label>
+      <label class="mode-option">
+        <input type="radio" name="import-mode" value="replace">
+        <span><strong>Replace existing</strong><small>Remove current frames first</small></span>
+      </label>
+    </fieldset>
+    <div class="import-frame-heading">
+      <div>
+        <strong>Frames to import</strong>
+        <p id="import-frame-count" class="import-help"></p>
+      </div>
+      <span>
+        <button id="select-all-import-frames" class="text-button" type="button">Select all</button>
+        <button id="clear-import-frames" class="text-button" type="button">Clear</button>
+      </span>
+    </div>
+    <div id="import-frame-list" class="import-frame-list"></div>
+    <div class="import-settings-section">
+      <p class="group-label">Settings</p>
+      <label class="import-settings-option">
+        <input type="checkbox" id="import-settings-checkbox" checked>
+        <span class="check-indicator" aria-hidden="true"></span>
+        <span><strong>Replace existing application settings with import</strong><small>Includes snapping, layout, and default size.</small></span>
+      </label>
+    </div>
+    <p id="import-dialog-status" class="import-dialog-status" role="status" aria-live="polite"></p>
+    <div class="import-dialog-actions">
+      <button id="cancel-import-btn" class="btn btn-secondary" type="button">Cancel</button>
+      <button id="apply-import-btn" class="btn btn-primary" type="button">Import selected</button>
+    </div>
+  </dialog>
 
   <script type="module" src="index.js"></script>
 </body>

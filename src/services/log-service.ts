@@ -40,6 +40,10 @@ class LogService {
     return this.currentLevel;
   }
 
+  getLogPath(): string {
+    return this.logPath;
+  }
+
   private shouldLog(level: LogLevel): boolean {
     return LOG_LEVELS[level] >= LOG_LEVELS[this.currentLevel];
   }

@@ -37,6 +37,8 @@ export interface AppConfig {
   groupMovementEnabled: boolean;
   layoutLocked: boolean;
   alwaysOnTop: boolean;
+  autoReloadOn404: boolean;
+  autoReload404IntervalSeconds: number;
   logLevel: LogLevel;
   frameSize: FrameSizeSettings;
   frames: FrameConfig[];

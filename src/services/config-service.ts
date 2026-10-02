@@ -59,6 +59,13 @@ function migrateConfig(config: any, dropInvalidUrls = true): AppConfig {
     logService.info('Migrating config to add frameSize setting');
     migratedConfig.frameSize = getDefaultFrameSize();
   }
+
+  if (migratedConfig.autoReloadOn404 === undefined) {
+    migratedConfig.autoReloadOn404 = DEFAULT_CONFIG.autoReloadOn404;
+  }
+  if (migratedConfig.autoReload404IntervalSeconds === undefined) {
+    migratedConfig.autoReload404IntervalSeconds = DEFAULT_CONFIG.autoReload404IntervalSeconds;
+  }
   
   if (Array.isArray(migratedConfig.frames)) {
     const hasLegacySnapTargets = migratedConfig.frames.some((frame: any) =>

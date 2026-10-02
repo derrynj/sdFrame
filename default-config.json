@@ -5,6 +5,8 @@
   "groupMovementEnabled": true,
   "layoutLocked": false,
   "alwaysOnTop": true,
+  "autoReloadOn404": true,
+  "autoReload404IntervalSeconds": 15,
   "logLevel": "info",
   "frames": []
 }

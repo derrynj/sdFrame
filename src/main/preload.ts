@@ -40,6 +40,9 @@ const fullApi = {
     unsnap: (payload: FrameUnsnapPayload) =>
       ipcRenderer.invoke(IPC_CHANNELS.FRAME_UNSNAP, payload),
 
+    minimize: () =>
+      ipcRenderer.invoke(IPC_CHANNELS.FRAME_MINIMIZE),
+
     enableAll: () =>
       ipcRenderer.invoke(IPC_CHANNELS.FRAME_ENABLE_ALL),
 
@@ -50,6 +53,22 @@ const fullApi = {
   tray: {
     showMenu: (x: number, y: number) =>
       ipcRenderer.invoke(IPC_CHANNELS.TRAY_SHOW_MENU, { x, y }),
+  },
+
+  settings: {
+    minimize: () =>
+      ipcRenderer.invoke(IPC_CHANNELS.SETTINGS_MINIMIZE),
+
+    hide: () =>
+      ipcRenderer.invoke(IPC_CHANNELS.SETTINGS_HIDE),
+  },
+
+  debug: {
+    viewLog: () =>
+      ipcRenderer.invoke(IPC_CHANNELS.DEBUG_VIEW_LOG),
+
+    openDevTools: () =>
+      ipcRenderer.invoke(IPC_CHANNELS.DEBUG_OPEN_DEVTOOLS),
   },
 
   config: {
@@ -80,6 +99,9 @@ const fullApi = {
   },
 
   app: {
+    getVersion: () =>
+      ipcRenderer.invoke(IPC_CHANNELS.APP_GET_VERSION),
+
     quit: () =>
       ipcRenderer.invoke(IPC_CHANNELS.APP_QUIT),
   },
@@ -111,6 +133,7 @@ const fullApi = {
 const restrictedApi = {
   frame: {
     unsnap: fullApi.frame.unsnap,
+    minimize: fullApi.frame.minimize,
   },
   tray: fullApi.tray,
   page: fullApi.page,

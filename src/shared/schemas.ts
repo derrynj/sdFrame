@@ -45,6 +45,8 @@ export const AppConfigSchema = z.object({
   groupMovementEnabled: z.boolean(),
   layoutLocked: z.boolean(),
   alwaysOnTop: z.boolean(),
+  autoReloadOn404: z.boolean(),
+  autoReload404IntervalSeconds: z.number().int().min(15).max(300),
   logLevel: LogLevelSchema,
   frameSize: FrameSizeSettingsSchema,
   frames: z.array(FrameConfigSchema),
@@ -84,6 +86,8 @@ export const ConfigSetPayloadSchema = z.discriminatedUnion('key', [
   z.object({ key: z.literal('groupMovementEnabled'), value: z.boolean() }),
   z.object({ key: z.literal('layoutLocked'), value: z.boolean() }),
   z.object({ key: z.literal('alwaysOnTop'), value: z.boolean() }),
+  z.object({ key: z.literal('autoReloadOn404'), value: z.boolean() }),
+  z.object({ key: z.literal('autoReload404IntervalSeconds'), value: z.number().int().min(15).max(300) }),
   z.object({ key: z.literal('logLevel'), value: LogLevelSchema }),
   z.object({ key: z.literal('frameSize'), value: FrameSizeSettingsSchema }),
 ]);

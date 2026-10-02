@@ -21,6 +21,7 @@ if (!gotTheLock) {
     windowManager.loadExistingColors();
     logService.info('Application starting');
 
+    windowManager.initializeNotFoundAutoReload();
     session.defaultSession.setPermissionRequestHandler((_webContents, _permission, callback) => {
       callback(false);
     });
