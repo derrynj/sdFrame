@@ -159,7 +159,12 @@ export class WindowManager {
     });
 
     window.on('focus', () => {
-      if (this.settingsWindow && !this.settingsWindow.isDestroyed()) {
+      if (
+        this.settingsWindow &&
+        !this.settingsWindow.isDestroyed() &&
+        this.settingsWindow.isVisible() &&
+        !this.settingsWindow.isMinimized()
+      ) {
         this.settingsWindow.setAlwaysOnTop(true);
         this.settingsWindow.moveTop();
       }
@@ -463,7 +468,12 @@ export class WindowManager {
   }
 
   private bringSettingsToFront(): void {
-    if (this.settingsWindow && !this.settingsWindow.isDestroyed()) {
+    if (
+      this.settingsWindow &&
+      !this.settingsWindow.isDestroyed() &&
+      this.settingsWindow.isVisible() &&
+      !this.settingsWindow.isMinimized()
+    ) {
       this.settingsWindow.focus();
       this.settingsWindow.setAlwaysOnTop(true);
     }
