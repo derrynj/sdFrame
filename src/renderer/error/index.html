@@ -19,26 +19,8 @@
     <h1>Page Unavailable</h1>
     <p class="url" id="url-display"></p>
     <p class="error" id="error-display"></p>
-    <p class="retry-countdown" id="retry-countdown" aria-live="polite" hidden></p>
-    <button id="retry-btn" class="btn">Try Again</button>
   </div>
 
-  <script>
-    (function() {
-      const params = window.sdFrame.getQueryParams();
-      const frameId = params.frameId || '';
-      const url = params.url || 'Unknown URL';
-      const error = params.error || 'Failed to load page';
-
-      document.getElementById('url-display').textContent = url;
-      document.getElementById('error-display').textContent = error;
-
-      document.getElementById('retry-btn').addEventListener('click', function() {
-        if (frameId) {
-          window.sdFrame.page.retry(frameId);
-        }
-      });
-    })();
-  </script>
+  <script src="error.js"></script>
 </body>
 </html>

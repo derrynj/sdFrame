@@ -47,39 +47,3 @@ h1 {
   color: #e74c3c;
   margin-bottom: 24px;
 }
-
-.retry-countdown {
-  display: inline-block;
-  margin-bottom: 24px;
-  padding: 10px 16px;
-  border: 1px solid rgba(78, 205, 196, 0.35);
-  border-radius: 6px;
-  background: rgba(78, 205, 196, 0.12);
-  color: #8ce8e1;
-  font-size: 16px;
-  font-weight: 600;
-}
-
-.retry-countdown[hidden] {
-  display: none;
-}
-
-.btn {
-  padding: 12px 32px;
-  background: #4ECDC4;
-  color: #1a1a2e;
-  border: none;
-  border-radius: 6px;
-  font-size: 14px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: background 0.2s, transform 0.1s;
-}
-
-.btn:hover {
-  background: #3dbdb5;
-}
-
-.btn:active {
-  transform: scale(0.98);
-}

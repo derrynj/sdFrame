@@ -86,5 +86,7 @@ export const IPC_CHANNELS = {
   FRAME_ENABLE_ALL: 'frame:enable-all',
   FRAME_DISABLE_ALL: 'frame:disable-all',
   FRAME_SNAP_STATUS_CHANGED: 'frame:snap-status-changed',
+  FRAME_COLOR_CHANGED: 'frame:color-changed',
+  FRAME_LOAD_STATUS_CHANGED: 'frame:load-status-changed',
   TRAY_SHOW_MENU: 'tray:show-menu',
 } as const;

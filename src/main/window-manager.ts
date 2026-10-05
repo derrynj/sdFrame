@@ -1,4 +1,4 @@
-import { BrowserWindow, screen, shell, dialog, session } from 'electron';
+import { BrowserWindow, WebContentsView, screen, shell, dialog, session } from 'electron';
 import * as path from 'path';
 import * as crypto from 'crypto';
 import type { MessageBoxOptions } from 'electron';
@@ -12,12 +12,17 @@ import {
   IPC_CHANNELS,
 } from '../shared/constants';
 
+const TITLEBAR_HEIGHT = 24;
+
 function isAbortedNavigationError(error: unknown): error is Error {
   return error instanceof Error && error.message.includes('ERR_ABORTED');
 }
 
 export class WindowManager {
   private frameWindows: Map<string, BrowserWindow> = new Map();
+  private remoteViews: Map<string, WebContentsView> = new Map();
+  private titlebarReady: Map<string, Promise<void>> = new Map();
+  private remoteFullscreen = new Set<string>();
   private settingsWindow: BrowserWindow | null = null;
   private usedColors: Set<string> = new Set();
   private isQuitting = false;
@@ -45,10 +50,12 @@ export class WindowManager {
           if (frameId) {
             if (details.statusCode === 404) {
               this.autoReloadFailures.set(frameId, 'HTTP 404');
+              this.setTitlebarLoadStatus(frameId, true, '');
               this.scheduleAutoReload(frameId);
             } else {
               this.autoReloadFailures.delete(frameId);
               this.clearNotFoundReload(frameId);
+              this.setTitlebarLoadStatus(frameId, false, '');
             }
           }
         }
@@ -86,8 +93,8 @@ export class WindowManager {
 
       logService.info('Retrying frame after load failure', { frameId, failure, url: frameConfig.url });
       void (async () => {
-        await this.loadLoadingPage(window, frameConfig);
-        await window.loadURL(frameConfig.url);
+        await this.loadLoadingPage(frameConfig);
+        await this.loadRemoteUrl(frameId, frameConfig.url);
       })().catch(error => {
         logService.error('Automatic retry failed', {
           frameId,
@@ -125,25 +132,8 @@ export class WindowManager {
     }
     const hadDeadline = this.autoReloadDeadlines.delete(frameId);
     if (!hadDeadline) return;
-
-    const window = this.frameWindows.get(frameId);
-    if (!window || window.isDestroyed()) return;
-    window.webContents.executeJavaScript(`
-      (function() {
-        ['sdframe-reload-countdown', 'retry-countdown'].forEach(function(id) {
-          const status = document.getElementById(id);
-          if (status) {
-            status.hidden = true;
-            status.textContent = '';
-          }
-        });
-      })();
-    `).catch(error => {
-      logService.debug('Failed to clear retry countdown', {
-        frameId,
-        error: error instanceof Error ? error.message : String(error),
-      });
-    });
+    const retryAvailable = this.autoReloadFailures.has(frameId);
+    this.setTitlebarLoadStatus(frameId, retryAvailable, '');
   }
 
   private updateNotFoundReloadCountdown(frameId: string): void {
@@ -151,25 +141,7 @@ export class WindowManager {
     if (deadline === undefined) return;
 
     const remainingSeconds = Math.max(0, Math.ceil((deadline - Date.now()) / 1000));
-    const window = this.frameWindows.get(frameId);
-    if (!window || window.isDestroyed()) return;
-    window.webContents.executeJavaScript(`
-      (function() {
-        const message = 'Retrying in ${remainingSeconds}s';
-        ['sdframe-reload-countdown', 'retry-countdown'].forEach(function(id) {
-          const status = document.getElementById(id);
-          if (status) {
-            status.textContent = message;
-            status.hidden = false;
-          }
-        });
-      })();
-    `).catch(error => {
-      logService.debug('Failed to update retry countdown', {
-        frameId,
-        error: error instanceof Error ? error.message : String(error),
-      });
-    });
+    this.setTitlebarLoadStatus(frameId, true, `Retrying in ${remainingSeconds}s`);
   }
 
   private setupSnapStatusCallback(): void {
@@ -196,17 +168,39 @@ export class WindowManager {
     });
   }
 
-  private updateFrameColor(frameId: string, newColor: string): void {
-    // Update only the visual appearance (CSS), not the config
-    const window = this.frameWindows.get(frameId);
-    if (window) {
-      const css = `
-        #sdframe-drag-handle {
-          background: linear-gradient(to bottom, ${newColor}dd, ${newColor}88) !important;
-        }
-      `;
-      window.webContents.insertCSS(css).catch(() => {});
+  private async loadRemoteUrl(frameId: string, url: string): Promise<void> {
+    const view = this.remoteViews.get(frameId);
+    if (!view || view.webContents.isDestroyed()) return;
+    this.setTitlebarLoadStatus(frameId, false, '');
+    try {
+      await view.webContents.loadURL(url);
+    } catch (error) {
+      if (isAbortedNavigationError(error)) return;
+      logService.error('Failed to load URL', {
+        frameId,
+        url,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      const currentConfig = configService.getFrame(frameId);
+      if (currentConfig) {
+        this.loadErrorPage(frameId, currentConfig.url, 'Failed to load page');
+      }
     }
+  }
+
+  private setTitlebarLoadStatus(frameId: string, retryAvailable: boolean, retryCountdown: string): void {
+    const window = this.frameWindows.get(frameId);
+    if (!window || window.isDestroyed() || window.webContents.isDestroyed()) return;
+    window.webContents.send(IPC_CHANNELS.FRAME_LOAD_STATUS_CHANGED, {
+      retryAvailable,
+      retryCountdown,
+    });
+  }
+
+  private updateFrameColor(frameId: string, newColor: string): void {
+    const window = this.frameWindows.get(frameId);
+    if (!window || window.isDestroyed() || window.webContents.isDestroyed()) return;
+    window.webContents.send(IPC_CHANNELS.FRAME_COLOR_CHANGED, { color: newColor });
 
     logService.debug('Frame color updated visually', { frameId, newColor });
   }
@@ -324,36 +318,47 @@ export class WindowManager {
       }
     });
 
-    window.webContents.on('will-navigate', (event, navigationUrl) => {
+    const remoteView = new WebContentsView({
+      webPreferences: {
+        nodeIntegration: false,
+        contextIsolation: true,
+        sandbox: true,
+      },
+    });
+    this.frameWindows.set(config.id, window);
+    this.remoteViews.set(config.id, remoteView);
+    window.contentView.addChildView(remoteView);
+    this.positionRemoteView(config.id);
+
+    const remote = remoteView.webContents;
+
+    const restrictNavigation = (event: Electron.Event, navigationUrl: string): void => {
+      const currentConfig = configService.getFrame(config.id);
+      if (!currentConfig) {
+        event.preventDefault();
+        return;
+      }
       try {
-        const configuredOrigin = new URL(config.url).origin;
-        const targetOrigin = new URL(navigationUrl).origin;
-        if (targetOrigin !== configuredOrigin) {
+        const configuredHost = new URL(currentConfig.url).hostname.toLowerCase().replace(/^www\./, '');
+        const target = new URL(navigationUrl);
+        const targetHost = target.hostname.toLowerCase();
+        const isHttp = target.protocol === 'http:' || target.protocol === 'https:';
+        const isConfiguredSite = targetHost === configuredHost || targetHost.endsWith(`.${configuredHost}`);
+        if (!isHttp || !isConfiguredSite) {
           event.preventDefault();
-          logService.warn('Blocked navigation to different origin', {
-            from: configuredOrigin,
-            to: targetOrigin
+          logService.warn('Blocked navigation outside configured site', {
+            configuredHost,
+            targetUrl: navigationUrl,
           });
         }
       } catch {
         event.preventDefault();
       }
-    });
+    };
+    remote.on('will-navigate', restrictNavigation);
+    remote.on('will-redirect', restrictNavigation);
 
-    window.webContents.on('did-navigate', () => {
-      this.injectDragHandle(window, config);
-    });
-
-    window.webContents.on('did-navigate-in-page', (_event, _url, isMainFrame) => {
-      if (!isMainFrame) return;
-      this.injectDragHandle(window, config);
-    });
-
-    window.webContents.on('dom-ready', () => {
-      this.injectDragHandle(window, config);
-    });
-
-    window.webContents.setWindowOpenHandler(({ url }) => {
+    remote.setWindowOpenHandler(({ url }) => {
       if (/^https?:\/\//i.test(url)) {
         shell.openExternal(url).catch(() => {});
       } else {
@@ -365,9 +370,11 @@ export class WindowManager {
       return { action: 'deny' };
     });
 
-    window.webContents.on('did-fail-load', (_event, errorCode, errorDescription, _validatedURL, isMainFrame) => {
+    remote.on('did-fail-load', (_event, errorCode, errorDescription, _validatedURL, isMainFrame) => {
       if (!isMainFrame) return;
       if (errorDescription === 'ERR_ABORTED') return;
+      const currentConfig = configService.getFrame(config.id);
+      if (!currentConfig) return;
       logService.error('Page load failed', {
         frameId: config.id,
         errorCode,
@@ -377,10 +384,10 @@ export class WindowManager {
         this.autoReloadFailures.set(config.id, 'connection timeout');
         this.scheduleAutoReload(config.id);
       }
-      this.loadErrorPage(window, config.id, config.url, errorDescription);
+      this.loadErrorPage(config.id, currentConfig.url, errorDescription);
     });
 
-    window.webContents.on('render-process-gone', (_event, details) => {
+    remote.on('render-process-gone', (_event, details) => {
       logService.error('Renderer process gone', {
         frameId: config.id,
         reason: details.reason,
@@ -392,16 +399,37 @@ export class WindowManager {
       this.reloadCounts.set(config.id, count);
 
       if (details.reason !== 'oom' && count <= 2) {
-        window.webContents.reload();
+        remote.reload();
       } else {
         this.reloadCounts.delete(config.id);
-        this.loadErrorPage(window, config.id, config.url, `Renderer crashed (${details.reason})`);
+        const currentConfig = configService.getFrame(config.id);
+        if (currentConfig) {
+          this.loadErrorPage(config.id, currentConfig.url, `Renderer crashed (${details.reason})`);
+        }
       }
     });
 
-    window.webContents.on('did-finish-load', () => {
+    remote.on('did-finish-load', () => {
       this.reloadCounts.delete(config.id);
     });
+
+    remote.on('enter-html-full-screen', () => {
+      this.remoteFullscreen.add(config.id);
+      window.setFullScreen(true);
+      this.positionRemoteView(config.id);
+    });
+
+    remote.on('leave-html-full-screen', () => {
+      this.remoteFullscreen.delete(config.id);
+      window.setFullScreen(false);
+      this.positionRemoteView(config.id);
+    });
+
+    window.on('resize', () => {
+      this.positionRemoteView(config.id);
+    });
+
+    this.titlebarReady.set(config.id, this.loadTitlebar(window, config));
 
     window.on('close', (event) => {
       if (this.isQuitting || this.intentionalClosing.has(config.id)) {
@@ -428,14 +456,21 @@ export class WindowManager {
     });
 
     window.on('closed', () => {
+      const view = this.remoteViews.get(config.id);
+      if (view && !view.webContents.isDestroyed()) {
+        view.webContents.close();
+      }
       this.frameWindows.delete(config.id);
+      this.remoteViews.delete(config.id);
+      this.titlebarReady.delete(config.id);
+      this.remoteFullscreen.delete(config.id);
       this.intentionalClosing.delete(config.id);
       this.autoReloadFailures.delete(config.id);
+      this.reloadCounts.delete(config.id);
       this.clearNotFoundReload(config.id);
       snapManager.unregisterWindow(config.id);
     });
 
-    this.frameWindows.set(config.id, window);
     snapManager.registerWindow(config.id, window);
 
     return window;
@@ -443,20 +478,15 @@ export class WindowManager {
 
   private async openFrameWindow(config: FrameConfig): Promise<BrowserWindow> {
     const window = this.createFrameWindow(config);
-    await this.loadLoadingPage(window, config);
+    await Promise.all([
+      this.loadLoadingPage(config),
+      this.titlebarReady.get(config.id),
+    ]);
+    this.positionRemoteView(config.id);
     window.show();
-
-    try {
-      await window.loadURL(config.url);
-    } catch (error) {
-      if (!isAbortedNavigationError(error)) {
-        logService.error('Failed to load URL', {
-          frameId: config.id,
-          url: config.url,
-          error: error instanceof Error ? error.message : String(error)
-        });
-      }
-    }
+    snapManager.handleDisplayChange();
+    snapManager.notifySnapStatus(config.id);
+    void this.loadRemoteUrl(config.id, config.url);
 
     // Ensure settings window stays on top after showing a new frame
     this.bringSettingsToFront();
@@ -464,17 +494,12 @@ export class WindowManager {
     return window;
   }
 
-  private async loadLoadingPage(window: BrowserWindow, config: FrameConfig): Promise<void> {
+  private async loadLoadingPage(config: FrameConfig): Promise<void> {
+    const view = this.remoteViews.get(config.id);
+    if (!view) return;
     const loadingPagePath = path.join(__dirname, '..', 'renderer', 'loading', 'index.html');
     try {
-      await window.loadFile(loadingPagePath, {
-        query: {
-          frameId: config.id,
-          name: config.name ?? config.id.slice(0, 8),
-          color: config.color,
-          snapped: String(config.snappedTo.length > 0),
-        },
-      });
+      await view.webContents.loadFile(loadingPagePath);
     } catch (error) {
       logService.warn('Failed to load loading page', {
         error: error instanceof Error ? error.message : String(error)
@@ -482,279 +507,53 @@ export class WindowManager {
     }
   }
 
-  private loadErrorPage(window: BrowserWindow, frameId: string, url: string, error: string): void {
-    const errorPagePath = path.join(__dirname, '..', 'renderer', 'error', 'index.html');
-    window.loadFile(errorPagePath, {
-      query: { frameId, url, error },
+  private loadTitlebar(window: BrowserWindow, config: FrameConfig): Promise<void> {
+    const titlebarPath = path.join(__dirname, '..', 'renderer', 'titlebar', 'index.html');
+    return window.loadFile(titlebarPath, {
+      query: {
+        frameId: config.id,
+        name: config.name ?? config.id.slice(0, 8),
+        color: config.color,
+        snapped: String(config.snappedTo.length > 0),
+      },
+    }).catch(error => {
+      logService.warn('Failed to load titlebar page', {
+        error: error instanceof Error ? error.message : String(error)
+      });
+      throw error;
     });
   }
 
-  private injectDragHandle(window: BrowserWindow, config: FrameConfig): void {
-    const css = `
-      ::-webkit-scrollbar {
-        display: none;
-      }
-      html, body {
-        scrollbar-width: none;
-        -ms-overflow-style: none;
-      }
-      #sdframe-drag-handle {
-        position: fixed;
-        top: 0;
-        left: 0;
-        right: 0;
-        height: 24px;
-        background: linear-gradient(to bottom, ${config.color}dd, ${config.color}88);
-        -webkit-app-region: drag;
-        z-index: 999999;
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        padding: 0 8px;
-        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-        font-size: 11px;
-        color: #fff;
-        text-shadow: 0 1px 1px rgba(0,0,0,0.3);
-        opacity: 0.9;
-        transition: opacity 0.2s;
-      }
-      #sdframe-drag-handle:hover {
-        opacity: 1;
-      }
-      #sdframe-drag-handle .frame-id {
-        opacity: 0.8;
-        font-weight: 500;
-      }
-      #sdframe-reload-countdown {
-        position: fixed;
-        z-index: 999998;
-        left: 50%;
-        bottom: 16px;
-        transform: translateX(-50%);
-        padding: 10px 16px;
-        border: 1px solid rgba(78, 205, 196, 0.35);
-        border-radius: 6px;
-        background: rgba(26, 26, 46, 0.92);
-        color: #8ce8e1;
-        font: 600 16px -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-        white-space: nowrap;
-        pointer-events: none;
-        -webkit-app-region: no-drag;
-      }
-      #sdframe-drag-handle .unsnap-btn {
-        -webkit-app-region: no-drag;
-        background: rgba(255,255,255,0.2);
-        border: none;
-        color: #fff;
-        padding: 2px 8px;
-        border-radius: 3px;
-        font-size: 10px;
-        cursor: pointer;
-        opacity: 0.8;
-        display: none; /* Hidden by default, shown when snapped */
-      }
-      #sdframe-drag-handle .unsnap-btn:hover {
-        background: rgba(255,255,255,0.3);
-        opacity: 1;
-      }
-      #sdframe-drag-handle .unsnap-btn:disabled {
-        opacity: 0.3;
-        cursor: not-allowed;
-      }
-      #sdframe-drag-handle .menu-btn {
-        -webkit-app-region: no-drag;
-        background: rgba(255,255,255,0.2);
-        border: none;
-        color: #fff;
-        padding: 2px 8px;
-        border-radius: 3px;
-        font-size: 14px;
-        font-weight: bold;
-        cursor: pointer;
-        opacity: 0.8;
-        transition: opacity 0.2s, background 0.2s;
-      }
-      #sdframe-drag-handle .menu-btn:hover {
-        background: rgba(255,255,255,0.3);
-        opacity: 1;
-      }
-      #sdframe-drag-handle .minimize-btn {
-        -webkit-app-region: no-drag;
-        width: 22px;
-        height: 20px;
-        padding: 0;
-        background: rgba(255,255,255,0.2);
-        border: none;
-        border-radius: 3px;
-        color: #fff;
-        font-size: 16px;
-        line-height: 16px;
-        cursor: pointer;
-        opacity: 0.8;
-      }
-      #sdframe-drag-handle .minimize-btn:hover {
-        background: rgba(255,255,255,0.3);
-        opacity: 1;
-      }
-      #sdframe-drag-handle .disable-btn {
-        -webkit-app-region: no-drag;
-        width: 22px;
-        height: 20px;
-        padding: 0;
-        background: rgba(255,255,255,0.2);
-        border: none;
-        border-radius: 3px;
-        color: #fff;
-        font-size: 16px;
-        line-height: 16px;
-        cursor: pointer;
-        opacity: 0.8;
-      }
-      #sdframe-drag-handle .disable-btn:hover {
-        background: #e55353;
-        opacity: 1;
-      }
-      #sdframe-drag-handle .frame-actions {
-        display: flex;
-        align-items: center;
-        gap: 5px;
-        -webkit-app-region: no-drag;
-      }
-    `;
-
-    const isInitiallySnapped = config.snappedTo && config.snappedTo.length > 0;
-    const retryDeadline = this.autoReloadDeadlines.get(config.id);
-    const retrySeconds = retryDeadline === undefined
-      ? null
-      : Math.max(0, Math.ceil((retryDeadline - Date.now()) / 1000));
-
-    const js = `
-      (function() {
-        const titleBarId = 'sdframe-drag-handle';
-        if (document.getElementById(titleBarId)) return true;
-        const styleId = 'sdframe-drag-handle-styles';
-
-        function injectStyles() {
-          if (document.getElementById(styleId)) return;
-          const style = document.createElement('style');
-          style.id = styleId;
-          style.textContent = ${JSON.stringify(css)};
-          (document.head || document.documentElement).appendChild(style);
-        }
-
-        function build() {
-        if (document.getElementById(titleBarId) || !document.body) return false;
-        const handle = document.createElement('div');
-        handle.id = titleBarId;
-        const frameIdSpan = document.createElement('span');
-        frameIdSpan.className = 'frame-id';
-        frameIdSpan.textContent = ${JSON.stringify(config.name ?? config.id.slice(0, 8))};
-        let reloadCountdown = null;
-        if (!document.getElementById('retry-countdown')) {
-          reloadCountdown = document.createElement('div');
-          reloadCountdown.id = 'sdframe-reload-countdown';
-          reloadCountdown.setAttribute('role', 'status');
-          reloadCountdown.setAttribute('aria-live', 'polite');
-          reloadCountdown.hidden = ${retrySeconds === null};
-          reloadCountdown.textContent = ${JSON.stringify(retrySeconds === null ? '' : `Retrying in ${retrySeconds}s`)};
-          document.body.appendChild(reloadCountdown);
-        }
-        const unsnapBtn = document.createElement('button');
-        unsnapBtn.className = 'unsnap-btn';
-        unsnapBtn.id = 'sdframe-unsnap';
-        unsnapBtn.textContent = 'Unsnap';
-        const menuBtn = document.createElement('button');
-        menuBtn.className = 'menu-btn';
-        menuBtn.id = 'sdframe-menu-btn';
-        menuBtn.textContent = '⋮';
-        menuBtn.title = 'Click for menu';
-        const minimizeBtn = document.createElement('button');
-        minimizeBtn.className = 'minimize-btn';
-        minimizeBtn.textContent = '−';
-        minimizeBtn.title = 'Minimize frame';
-        minimizeBtn.setAttribute('aria-label', 'Minimize frame');
-        const disableBtn = document.createElement('button');
-        disableBtn.className = 'disable-btn';
-        disableBtn.textContent = '×';
-        disableBtn.title = 'Disable frame';
-        disableBtn.setAttribute('aria-label', 'Disable frame');
-        const actions = document.createElement('div');
-        actions.className = 'frame-actions';
-        handle.appendChild(frameIdSpan);
-        actions.appendChild(unsnapBtn);
-        actions.appendChild(minimizeBtn);
-        actions.appendChild(disableBtn);
-        actions.appendChild(menuBtn);
-        handle.appendChild(actions);
-        document.body.insertBefore(handle, document.body.firstChild);
-
-        unsnapBtn.style.display = ${isInitiallySnapped ? "'inline-block'" : "'none'"};
-
-        if (window.sdFrame) {
-          unsnapBtn.addEventListener('click', function() {
-            window.sdFrame.frame.unsnap({ id: ${JSON.stringify(config.id)}, all: true });
-          });
-
-          menuBtn.addEventListener('click', function(event) {
-            event.preventDefault();
-            event.stopPropagation();
-            window.sdFrame.tray.showMenu(event.clientX, event.clientY);
-          });
-
-          minimizeBtn.addEventListener('click', function(event) {
-            event.preventDefault();
-            event.stopPropagation();
-            window.sdFrame.frame.minimize();
-          });
-
-          disableBtn.addEventListener('click', function(event) {
-            event.preventDefault();
-            event.stopPropagation();
-            window.sdFrame.frame.disable();
-          });
-
-          window.sdFrame.on.snapStatusChanged(function(data) {
-            unsnapBtn.style.display = data.isSnapped ? 'inline-block' : 'none';
-          });
-        }
-        return true;
-        }
-
-        if (build()) {
-          injectStyles();
-          return true;
-        }
-
-        let observer = null;
-        function onReady() {
-          if (document.getElementById(titleBarId)) {
-            cleanup();
-            return;
-          }
-          if (build()) {
-            injectStyles();
-            cleanup();
-          }
-        }
-        function cleanup() {
-          if (observer) observer.disconnect();
-          observer = null;
-          document.removeEventListener('DOMContentLoaded', onReady);
-        }
-
-        observer = new MutationObserver(onReady);
-        observer.observe(document.documentElement || document, { childList: true, subtree: true });
-        document.addEventListener('DOMContentLoaded', onReady);
-        return true;
-      })();
-    `;
-
-    window.webContents.executeJavaScript(js).catch(error => {
-      logService.error('Failed to execute drag handle JavaScript', {
-        frameId: config.id,
-        error: error instanceof Error ? error.message : String(error)
+  private loadErrorPage(frameId: string, url: string, error: string): void {
+    const view = this.remoteViews.get(frameId);
+    if (!view || view.webContents.isDestroyed()) return;
+    this.setTitlebarLoadStatus(frameId, true, '');
+    const errorPagePath = path.join(__dirname, '..', 'renderer', 'error', 'index.html');
+    view.webContents.loadFile(errorPagePath, {
+      query: { frameId, url, error },
+    }).catch(loadError => {
+      logService.warn('Failed to load error page', {
+        frameId,
+        error: loadError instanceof Error ? loadError.message : String(loadError)
       });
     });
+  }
+
+  private positionRemoteView(frameId: string): void {
+    const window = this.frameWindows.get(frameId);
+    const view = this.remoteViews.get(frameId);
+    if (!window || window.isDestroyed() || !view) return;
+    const [width, height] = window.getContentSize();
+    if (this.remoteFullscreen.has(frameId)) {
+      view.setBounds({ x: 0, y: 0, width, height });
+    } else {
+      view.setBounds({
+        x: 0,
+        y: TITLEBAR_HEIGHT,
+        width,
+        height: Math.max(0, height - TITLEBAR_HEIGHT),
+      });
+    }
   }
 
   private updateDragHandleName(window: BrowserWindow, frameId: string, name: string | undefined): void {
@@ -776,21 +575,13 @@ export class WindowManager {
   }
 
   async retryLoadUrl(frameId: string): Promise<void> {
-    const window = this.frameWindows.get(frameId);
     const config = configService.getFrame(frameId);
-    if (window && config) {
+    const view = this.remoteViews.get(frameId);
+    if (view && !view.webContents.isDestroyed() && config) {
       this.clearNotFoundReload(frameId);
       this.autoReloadFailures.delete(frameId);
-      try {
-        await this.loadLoadingPage(window, config);
-        await window.loadURL(config.url);
-        logService.info('Retry successful', { frameId });
-      } catch (error) {
-        logService.error('Retry failed', { 
-          frameId,
-          error: error instanceof Error ? error.message : String(error)
-        });
-      }
+      await this.loadLoadingPage(config);
+      await this.loadRemoteUrl(frameId, config.url);
     }
   }
 
@@ -843,16 +634,15 @@ export class WindowManager {
     configService.updateFrame(id, updates);
 
     if (window) {
+      if (updates.color && updates.color !== currentConfig.color) {
+        this.updateFrameColor(id, updates.color);
+      }
+
       if (updates.url && updates.url !== currentConfig.url) {
         this.clearNotFoundReload(id);
         this.autoReloadFailures.delete(id);
-        window.loadURL(updates.url).catch(error => {
-          logService.error('Failed to load updated URL', {
-            frameId: id,
-            url: updates.url,
-            error: error instanceof Error ? error.message : String(error),
-          });
-        });
+        const view = this.remoteViews.get(id);
+        if (view && !view.webContents.isDestroyed()) void this.loadRemoteUrl(id, updates.url);
       }
 
       if (updates.name !== undefined && updates.name !== currentConfig.name) {
@@ -1142,7 +932,11 @@ export class WindowManager {
     const windows: Array<{ window: BrowserWindow; config: FrameConfig }> = [];
     const loadingPromises = frames.map(async (frame) => {
       const window = this.createFrameWindow(frame);
-      await this.loadLoadingPage(window, frame);
+      await Promise.all([
+        this.loadLoadingPage(frame),
+        this.titlebarReady.get(frame.id),
+      ]);
+      this.positionRemoteView(frame.id);
       windows.push({ window, config: frame });
       return window;
     });
@@ -1155,27 +949,12 @@ export class WindowManager {
 
     // Step 3: Trigger snap detection immediately since all windows are created
     snapManager.handleDisplayChange();
-
-    // Step 4: Load actual URLs concurrently (non-blocking)
-    const urlLoadPromises = windows.map(({ window, config }) =>
-      window.loadURL(config.url).catch(error => {
-        if (isAbortedNavigationError(error)) return;
-        logService.error('Failed to load URL', {
-          frameId: config.id,
-          url: config.url,
-          error: error instanceof Error ? error.message : String(error)
-        });
-        if (!window.isDestroyed()) {
-          this.loadErrorPage(window, config.id, config.url, 'Failed to load page');
-        }
-      })
-    );
-
-    // Wait for all URLs to load in background
-    await Promise.all(urlLoadPromises);
-
-    // Step 5: Notify all frames of their snap status to apply group colors
     snapManager.notifyAllSnapStatuses();
+
+    // Website loads run independently from the trusted titlebar initialization.
+    windows.forEach(({ config }) => {
+      void this.loadRemoteUrl(config.id, config.url);
+    });
 
     // Ensure settings window stays on top after restoring frames
     this.bringSettingsToFront();
@@ -1361,6 +1140,9 @@ export class WindowManager {
         return id;
       }
     }
+    for (const [id, view] of this.remoteViews) {
+      if (!view.webContents.isDestroyed() && view.webContents.id === webContentsId) return id;
+    }
     return undefined;
   }
 
@@ -1374,7 +1156,7 @@ export class WindowManager {
 
   isKnownFrameSender(webContentsId: number, frameId?: string): boolean {
     for (const [id, window] of this.frameWindows) {
-      if (window.isDestroyed() || window.webContents.id !== webContentsId) continue;
+      if (window.isDestroyed() || window.webContents.isDestroyed() || window.webContents.id !== webContentsId) continue;
       return frameId === undefined || frameId === id;
     }
     return false;

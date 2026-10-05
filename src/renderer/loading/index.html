@@ -7,52 +7,9 @@
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-  <div id="sdframe-drag-handle">
-    <span class="frame-id"></span>
-    <div class="frame-actions">
-      <button class="unsnap-btn" type="button">Unsnap</button>
-      <button class="minimize-btn" type="button" title="Minimize frame" aria-label="Minimize frame">−</button>
-      <button class="disable-btn" type="button" title="Disable frame" aria-label="Disable frame">×</button>
-      <button class="menu-btn" type="button" title="Click for menu" aria-label="Open frame menu">⋮</button>
-    </div>
-  </div>
   <div class="loading-container">
     <div class="spinner"></div>
     <div class="loading-text">Loading...</div>
   </div>
-  <script>
-    (function() {
-      const params = window.sdFrame.getQueryParams();
-      const frameId = params.frameId || '';
-      const handle = document.getElementById('sdframe-drag-handle');
-      const frameName = document.querySelector('.frame-id');
-      const unsnapButton = document.querySelector('.unsnap-btn');
-      const minimizeButton = document.querySelector('.minimize-btn');
-      const disableButton = document.querySelector('.disable-btn');
-      const menuButton = document.querySelector('.menu-btn');
-
-      frameName.textContent = params.name || frameId.slice(0, 8);
-      handle.style.background = 'linear-gradient(to bottom, ' + params.color + 'dd, ' + params.color + '88)';
-      unsnapButton.style.display = params.snapped === 'true' ? 'inline-block' : 'none';
-
-      unsnapButton.addEventListener('click', function() {
-        window.sdFrame.frame.unsnap({ id: frameId, all: true });
-      });
-      minimizeButton.addEventListener('click', function() {
-        window.sdFrame.frame.minimize();
-      });
-      disableButton.addEventListener('click', function() {
-        window.sdFrame.frame.disable();
-      });
-      menuButton.addEventListener('click', function(event) {
-        event.preventDefault();
-        event.stopPropagation();
-        window.sdFrame.tray.showMenu(event.clientX, event.clientY);
-      });
-      window.sdFrame.on.snapStatusChanged(function(data) {
-        unsnapButton.style.display = data.isSnapped ? 'inline-block' : 'none';
-      });
-    })();
-  </script>
 </body>
 </html>

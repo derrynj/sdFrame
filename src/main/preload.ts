@@ -135,6 +135,14 @@ const fullApi = {
       ipcRenderer.on(IPC_CHANNELS.FRAME_SNAP_STATUS_CHANGED, (_event, data) => callback(data));
     },
 
+    colorChanged: (callback: (data: { color: string }) => void) => {
+      ipcRenderer.on(IPC_CHANNELS.FRAME_COLOR_CHANGED, (_event, data) => callback(data));
+    },
+
+    loadStatusChanged: (callback: (data: { retryAvailable: boolean; retryCountdown: string }) => void) => {
+      ipcRenderer.on(IPC_CHANNELS.FRAME_LOAD_STATUS_CHANGED, (_event, data) => callback(data));
+    },
+
   },
 
   getQueryParams: (): Record<string, string> => {

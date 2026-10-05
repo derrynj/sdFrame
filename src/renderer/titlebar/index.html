@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline';">
+  <title>sdFrame</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div id="sdframe-drag-handle">
+    <span class="frame-id"></span>
+    <span class="retry-countdown" aria-live="polite" hidden></span>
+    <div class="frame-actions">
+      <button class="unsnap-btn" type="button">Unsnap</button>
+      <button class="retry-btn" type="button" title="Retry loading page" aria-label="Retry loading page" hidden>Retry</button>
+      <button class="minimize-btn" type="button" title="Minimize frame" aria-label="Minimize frame">−</button>
+      <button class="disable-btn" type="button" title="Disable frame" aria-label="Disable frame">×</button>
+      <button class="menu-btn" type="button" title="Click for menu" aria-label="Open frame menu">⋮</button>
+    </div>
+  </div>
+  <script src="titlebar.js"></script>
+</body>
+</html>
