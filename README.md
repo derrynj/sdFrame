@@ -81,15 +81,23 @@ Logs are written to `%APPDATA%/sdframe/sdframe.log` with automatic rotation at 1
 ## Building
 
 ```bash
-# Windows portable EXE
+# Windows installer only
+npm run installer
+
+# Windows portable EXE only
+npm run portable
+
+# Build both Windows versions
 npm run dist
 ```
 
-Output: `release/sdFrame-{version}-portable.exe`
+`npm run installer` creates `release/sdFrame-{version}-setup.exe`, an installable Windows app with automatic updates. `npm run portable` creates `release/sdFrame-{version}-portable.exe`; the portable build does not self-update. `npm run dist` builds both.
+
+Published GitHub Releases are checked automatically at startup. Updates download in the background; use **Restart to install** in Settings when a download is ready. To publish a release, push a version tag such as `v2.0.4`. GitHub Actions builds both Windows artifacts and publishes the installer and update metadata to the [sdFrame GitHub Releases](https://github.com/derrynj/sdFrame/releases). Local `npm run dist` builds do not publish.
 
 ### Code Signing
 
-The Windows build is configured to use a code signing certificate for authenticating the executable. To enable signing:
+Local Windows builds can be signed with a code-signing certificate. To enable signing:
 
 1. Place your `.pfx` certificate file in the `.cert/` directory (e.g., `.cert/signingCert.pfx`)
 2. Add the certificate password to your `.env` file:
@@ -104,6 +112,7 @@ The Windows build is configured to use a code signing certificate for authentica
 The `dist:signed` script automatically sets the `CSC_LINK` environment variable to point to your certificate file and loads the password from `.env`.
 
 **Note:** The `.cert/` directory and `.env` file are excluded from version control (see `.gitignore`) to keep your credentials secure.
+GitHub Actions releases are unsigned unless signing credentials are configured in the workflow. Windows may show a SmartScreen warning for unsigned downloads.
 
 ## Preconfiguring Frames
 

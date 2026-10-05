@@ -33,6 +33,13 @@ interface AppConfig {
   frames: FrameConfig[];
 }
 
+interface UpdateStatus {
+  state: 'unsupported' | 'checking' | 'available' | 'downloading' | 'downloaded' | 'up-to-date' | 'error' | 'installing';
+  message: string;
+  version?: string;
+  percent?: number;
+}
+
 // The settings window is the only context guaranteed to receive the full API.
 type SdFrameFullApi = {
   frame: {
@@ -54,6 +61,7 @@ type SdFrameFullApi = {
   settings: {
     minimize: () => Promise<{ success: boolean; error?: string }>;
     hide: () => Promise<{ success: boolean; error?: string }>;
+    onUpdateStatusChanged: (callback: (status: UpdateStatus) => void) => void;
   };
   debug: {
     viewLog: () => Promise<{ success: boolean; error?: string }>;
@@ -84,6 +92,9 @@ type SdFrameFullApi = {
   };
   app: {
     getVersion: () => Promise<{ success: boolean; version?: string }>;
+    getUpdateStatus: () => Promise<{ success: boolean; status?: UpdateStatus }>;
+    checkForUpdates: () => Promise<{ success: boolean; status?: UpdateStatus; error?: string }>;
+    installUpdate: () => Promise<{ success: boolean; error?: string }>;
     quit: () => Promise<{ success: boolean }>;
   };
   getQueryParams: () => Record<string, string>;
@@ -121,6 +132,9 @@ const elements = {
   frameCount: document.getElementById('frame-count') as HTMLSpanElement,
   frameSummary: document.getElementById('frame-summary') as HTMLSpanElement,
   appVersion: document.getElementById('app-version') as HTMLSpanElement,
+  checkUpdatesBtn: document.getElementById('check-updates-btn') as HTMLButtonElement,
+  installUpdateBtn: document.getElementById('install-update-btn') as HTMLButtonElement,
+  updateStatus: document.getElementById('update-status') as HTMLParagraphElement,
   menuButton: document.getElementById('settings-menu-btn') as HTMLButtonElement,
   minimizeButton: document.getElementById('settings-minimize-btn') as HTMLButtonElement,
   closeButton: document.getElementById('settings-close-btn') as HTMLButtonElement,
@@ -153,6 +167,19 @@ async function loadAppVersion(): Promise<void> {
   const response = await sdFrame.app.getVersion();
   if (response?.success && response.version) {
     elements.appVersion.textContent = `v${response.version}`;
+  }
+}
+
+function renderUpdateStatus(status: UpdateStatus): void {
+  elements.updateStatus.textContent = status.message;
+  elements.checkUpdatesBtn.disabled = status.state === 'checking' || status.state === 'downloading';
+  elements.installUpdateBtn.hidden = status.state !== 'downloaded';
+}
+
+async function loadUpdateStatus(): Promise<void> {
+  const response = await sdFrame.app.getUpdateStatus();
+  if (response?.success && response.status) {
+    renderUpdateStatus(response.status);
   }
 }
 
@@ -550,6 +577,38 @@ elements.closeButton.addEventListener('click', async () => {
   }
 });
 
+elements.checkUpdatesBtn.addEventListener('click', async () => {
+  elements.checkUpdatesBtn.disabled = true;
+  try {
+    const response = await sdFrame.app.checkForUpdates();
+    if (response?.status) {
+      renderUpdateStatus(response.status);
+    } else if (!response?.success) {
+      elements.updateStatus.textContent = response?.error || 'Could not check for updates.';
+      elements.checkUpdatesBtn.disabled = false;
+    }
+  } catch (error) {
+    elements.updateStatus.textContent = error instanceof Error ? error.message : 'Could not check for updates.';
+    elements.checkUpdatesBtn.disabled = false;
+  }
+});
+
+elements.installUpdateBtn.addEventListener('click', async () => {
+  elements.installUpdateBtn.disabled = true;
+  try {
+    const response = await sdFrame.app.installUpdate();
+    if (!response?.success) {
+      elements.updateStatus.textContent = response?.error || 'Could not install the update.';
+      elements.installUpdateBtn.disabled = false;
+    }
+  } catch (error) {
+    elements.updateStatus.textContent = error instanceof Error ? error.message : 'Could not install the update.';
+    elements.installUpdateBtn.disabled = false;
+  }
+});
+
+sdFrame.settings.onUpdateStatusChanged(renderUpdateStatus);
+
 elements.viewLogButton.addEventListener('click', async () => {
   elements.debugStatus.textContent = '';
   elements.viewLogButton.disabled = true;
@@ -759,3 +818,4 @@ elements.exportConfigBtn.addEventListener('click', async () => {
 loadConfig();
 loadFrames();
 loadAppVersion();
+loadUpdateStatus();

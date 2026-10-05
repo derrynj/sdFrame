@@ -64,6 +64,10 @@ const fullApi = {
 
     hide: () =>
       ipcRenderer.invoke(IPC_CHANNELS.SETTINGS_HIDE),
+
+    onUpdateStatusChanged: (callback: (data: UpdateStatus) => void) => {
+      ipcRenderer.on(IPC_CHANNELS.APP_UPDATE_STATUS, (_event, data) => callback(data));
+    },
   },
 
   debug: {
@@ -105,6 +109,15 @@ const fullApi = {
     getVersion: () =>
       ipcRenderer.invoke(IPC_CHANNELS.APP_GET_VERSION),
 
+    getUpdateStatus: () =>
+      ipcRenderer.invoke(IPC_CHANNELS.APP_UPDATE_GET_STATUS),
+
+    checkForUpdates: () =>
+      ipcRenderer.invoke(IPC_CHANNELS.APP_UPDATE_CHECK),
+
+    installUpdate: () =>
+      ipcRenderer.invoke(IPC_CHANNELS.APP_UPDATE_INSTALL),
+
     quit: () =>
       ipcRenderer.invoke(IPC_CHANNELS.APP_QUIT),
   },
@@ -121,6 +134,7 @@ const fullApi = {
     snapStatusChanged: (callback: (data: { isSnapped: boolean; snappedToColor?: string }) => void) => {
       ipcRenderer.on(IPC_CHANNELS.FRAME_SNAP_STATUS_CHANGED, (_event, data) => callback(data));
     },
+
   },
 
   getQueryParams: (): Record<string, string> => {
@@ -150,6 +164,13 @@ contextBridge.exposeInMainWorld('sdFrame', isSettingsWindow ? fullApi : restrict
 
 type SdFrameApi = typeof fullApi;
 type SdFrameRestrictedApi = typeof restrictedApi;
+
+interface UpdateStatus {
+  state: 'unsupported' | 'checking' | 'available' | 'downloading' | 'downloaded' | 'up-to-date' | 'error' | 'installing';
+  message: string;
+  version?: string;
+  percent?: number;
+}
 
 declare global {
   interface Window {

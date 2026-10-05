@@ -22,6 +22,7 @@ import { windowManager } from './window-manager';
 import { configService } from '../services/config-service';
 import { logService } from '../services/log-service';
 import { trayManager } from './tray-manager';
+import { updateService } from './update-service';
 
 const ConfigImportApplySchema = z.object({
   config: z.unknown(),
@@ -402,6 +403,21 @@ export function registerIPCHandlers(): void {
     success: true,
     version: app.getVersion(),
   }));
+
+  handleForSettings(IPC_CHANNELS.APP_UPDATE_GET_STATUS, async () => ({
+    success: true,
+    status: updateService.getStatus(),
+  }));
+
+  handleForSettings(IPC_CHANNELS.APP_UPDATE_CHECK, async () => ({
+    success: true,
+    status: await updateService.checkForUpdates(),
+  }));
+
+  handleForSettings(IPC_CHANNELS.APP_UPDATE_INSTALL, async () => {
+    updateService.installUpdate();
+    return { success: true };
+  });
 
   handleForSettings(IPC_CHANNELS.DEBUG_VIEW_LOG, async () => {
     const error = await shell.openPath(logService.getLogPath());

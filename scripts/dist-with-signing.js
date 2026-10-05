@@ -36,7 +36,7 @@ process.env.CSC_LINK = certPath;
 // Run the dist command
 console.log('Building with code signing...');
 try {
-  execSync('npm run build && electron-builder', { stdio: 'inherit' });
+  execSync('npm run build && electron-builder --publish never', { stdio: 'inherit' });
   console.log('Build complete!');
 } catch (error) {
   console.error('Build failed:', error.message);

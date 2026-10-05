@@ -5,6 +5,7 @@ import { configService } from '../services/config-service';
 import { logService } from '../services/log-service';
 import { snapManager } from './snap-manager';
 import { registerIPCHandlers } from './ipc-handlers';
+import { updateService } from './update-service';
 
 const gotTheLock = app.requestSingleInstanceLock();
 
@@ -30,6 +31,7 @@ if (!gotTheLock) {
     });
 
     registerIPCHandlers();
+    updateService.initialize();
     trayManager.initialize();
 
     screen.on('display-removed', () => {
@@ -66,6 +68,16 @@ if (!gotTheLock) {
   app.on('before-quit', (event) => {
     if (isCleaningUp) return;
     isCleaningUp = true;
+
+    if (updateService.isInstallingUpdate()) {
+      logService.info('Quitting to install application update');
+      windowManager.prepareQuit();
+      configService.saveSync();
+      trayManager.destroy();
+      void logService.close();
+      return;
+    }
+
     event.preventDefault();
 
     void (async () => {

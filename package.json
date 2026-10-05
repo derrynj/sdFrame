@@ -1,6 +1,6 @@
 {
   "name": "sdframe",
-  "version": "2.0.3",
+  "version": "2.0.4",
   "description": "Multi-window kiosk-style web container",
   "main": "dist/main/index.js",
   "scripts": {
@@ -13,7 +13,9 @@
     "start": "npm run build && electron .",
     "dev": "npm run build && electron .",
     "pack": "npm run build && electron-builder --dir",
-    "dist": "npm run build && electron-builder",
+    "installer": "npm run build && electron-builder --win nsis --publish never",
+    "portable": "npm run build && electron-builder --win portable --publish never",
+    "dist": "npm run build && electron-builder --publish never",
     "dist:signed": "node scripts/dist-with-signing.js"
   },
   "author": "",
@@ -26,6 +28,7 @@
     "typescript": "^5.3.0"
   },
   "dependencies": {
+    "electron-updater": "^6.8.9",
     "zod": "^3.22.4"
   },
   "build": {
@@ -46,7 +49,10 @@
       }
     ],
     "win": {
-      "target": "portable",
+      "target": [
+        "nsis",
+        "portable"
+      ],
       "icon": "assets/icon.ico"
     },
     "mac": {
@@ -55,6 +61,19 @@
     },
     "portable": {
       "artifactName": "sdFrame-${version}-portable.exe"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "artifactName": "sdFrame-${version}-setup.${ext}"
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "derrynj",
+      "repo": "sdFrame",
+      "releaseType": "release"
     }
   }
 }
