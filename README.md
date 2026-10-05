@@ -92,13 +92,21 @@ npm run portable
 
 # Build both Windows versions
 npm run dist
+
+# macOS universal DMG and updater ZIP (run on macOS)
+npm run mac
+
+# Linux x64 AppImage (run on Linux)
+npm run linux
 ```
 
-`npm run installer` creates `release/sdFrame-{version}-setup.exe`, an installable Windows app with automatic updates. `npm run portable` creates `release/sdFrame-{version}-portable.exe`; the portable build does not self-update. `npm run dist` builds both.
+`npm run installer` creates `release/sdFrame-{version}-setup.exe`, an installable Windows app with automatic updates. `npm run portable` creates `release/sdFrame-{version}-portable.exe`; the portable build does not self-update. `npm run dist` builds the configured targets for the current host OS. The `mac` and `linux` scripts must be run on their respective operating systems.
+
+Tagged GitHub releases build Windows x64, a universal macOS DMG/ZIP, and a Linux x64 AppImage. The Linux AppImage and installed Windows build support automatic updates. macOS automatic updates require a Developer ID signing certificate. To enable signed (and optionally notarized) macOS release builds, add the repository Actions secrets `MACOS_CERTIFICATE_P12` (base64-encoded Developer ID Application `.p12`) and `MACOS_CERTIFICATE_PASSWORD`; for notarization also add `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, and `APPLE_TEAM_ID`. Without the certificate, the workflow still creates unsigned macOS builds, but macOS automatic updates will not work and Gatekeeper may warn.
 
 Third-party notices for production npm dependencies are in [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) and included with packaged builds. Regenerate the file with `npm run notices` after changing production dependencies. Build-time development dependencies are not part of the packaged app.
 
-Published GitHub Releases are checked automatically at startup. Updates download in the background; use **Restart to install** in Settings when a download is ready. To publish a release, push a version tag such as `v2.0.4`. GitHub Actions builds both Windows artifacts and publishes the installer and update metadata to the [sdFrame GitHub Releases](https://github.com/derrynj/sdFrame/releases). Local `npm run dist` builds do not publish.
+Published GitHub Releases are checked automatically at startup on supported installable builds. Updates download in the background; use **Restart to install** in Settings when a download is ready. To publish a release, push a version tag matching the package version, such as `v2.0.5`. GitHub Actions builds the Windows, macOS, and Linux artifacts and publishes them with update metadata to the [sdFrame GitHub Releases](https://github.com/derrynj/sdFrame/releases). Local platform build scripts do not publish.
 
 ### Code Signing
 

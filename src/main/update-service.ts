@@ -13,7 +13,7 @@ export interface UpdateStatus {
 class UpdateService {
   private status: UpdateStatus = {
     state: 'unsupported',
-    message: 'Automatic updates are available in installed Windows builds.',
+    message: 'Automatic updates are available in installed Windows/macOS builds and Linux AppImage builds.',
   };
 
   private initialized = false;
@@ -109,9 +109,15 @@ class UpdateService {
   }
 
   private isSupported(): boolean {
-    return app.isPackaged &&
-      process.platform === 'win32' &&
-      !process.env.PORTABLE_EXECUTABLE_DIR;
+    if (!app.isPackaged) return false;
+
+    if (process.platform === 'win32') {
+      return !process.env.PORTABLE_EXECUTABLE_DIR;
+    }
+
+    if (process.platform === 'darwin') return true;
+    if (process.platform === 'linux') return Boolean(process.env.APPIMAGE);
+    return false;
   }
 
   private setStatus(status: UpdateStatus): void {

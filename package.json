@@ -16,6 +16,8 @@
     "pack": "npm run build && electron-builder --dir",
     "installer": "npm run build && electron-builder --win nsis --publish never",
     "portable": "npm run build && electron-builder --win portable --publish never",
+    "mac": "npm run build && electron-builder --mac --universal --publish never",
+    "linux": "npm run build && electron-builder --linux AppImage --x64 --publish never",
     "dist": "npm run build && electron-builder --publish never",
     "dist:signed": "node scripts/dist-with-signing.js"
   },
@@ -65,8 +67,12 @@
       "icon": "assets/icon.ico"
     },
     "mac": {
-      "target": "dir",
-      "icon": "assets/icon.png"
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "icon": "assets/icon.png",
+      "category": "public.app-category.utilities"
     },
     "portable": {
       "artifactName": "sdFrame-${version}-portable.exe"
@@ -77,6 +83,14 @@
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
       "artifactName": "sdFrame-${version}-setup.${ext}"
+    },
+    "linux": {
+      "target": [
+        "AppImage"
+      ],
+      "icon": "assets/icon.png",
+      "category": "Utility",
+      "desktopName": "com.sdframe.app"
     },
     "publish": {
       "provider": "github",
