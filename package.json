@@ -7,6 +7,7 @@
     "copy-assets": "node scripts/copy-assets.js",
     "make-ico": "node scripts/make-ico.js",
     "bundle-preload": "node scripts/bundle-preload.js",
+    "notices": "node scripts/generate-third-party-notices.js",
     "build": "tsc && npm run bundle-preload && npm run copy-assets",
     "typecheck": "tsc --noEmit",
     "test": "tsc && node --test tests/snap-geometry.test.cjs",
@@ -18,7 +19,7 @@
     "dist": "npm run build && electron-builder --publish never",
     "dist:signed": "node scripts/dist-with-signing.js"
   },
-  "author": "",
+  "author": "Derryn Jones",
   "license": "MIT",
   "devDependencies": {
     "@types/node": "^22.20.4",
@@ -46,6 +47,14 @@
       {
         "from": "default-config.json",
         "to": "default-config.json"
+      },
+      {
+        "from": "THIRD-PARTY-NOTICES.md",
+        "to": "THIRD-PARTY-NOTICES.md"
+      },
+      {
+        "from": "LICENSE",
+        "to": "LICENSE"
       }
     ],
     "win": {

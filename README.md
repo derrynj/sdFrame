@@ -81,6 +81,9 @@ Logs are written to `%APPDATA%/sdframe/sdframe.log` with automatic rotation at 1
 ## Building
 
 ```bash
+# Refresh third-party license attributions after dependency changes
+npm run notices
+
 # Windows installer only
 npm run installer
 
@@ -92,6 +95,8 @@ npm run dist
 ```
 
 `npm run installer` creates `release/sdFrame-{version}-setup.exe`, an installable Windows app with automatic updates. `npm run portable` creates `release/sdFrame-{version}-portable.exe`; the portable build does not self-update. `npm run dist` builds both.
+
+Third-party notices for production npm dependencies are in [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) and included with packaged builds. Regenerate the file with `npm run notices` after changing production dependencies. Build-time development dependencies are not part of the packaged app.
 
 Published GitHub Releases are checked automatically at startup. Updates download in the background; use **Restart to install** in Settings when a download is ready. To publish a release, push a version tag such as `v2.0.4`. GitHub Actions builds both Windows artifacts and publishes the installer and update metadata to the [sdFrame GitHub Releases](https://github.com/derrynj/sdFrame/releases). Local `npm run dist` builds do not publish.
 
@@ -125,4 +130,4 @@ Quick example:
 
 ## License
 
-MIT
+sdFrame is licensed under the MIT License. See [LICENSE](LICENSE) for the full text.
