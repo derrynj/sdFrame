@@ -107,8 +107,13 @@ export class TrayManager {
       {
         label: 'Enable All Frames',
         click: () => {
-          windowManager.enableAllFrames();
-          this.updateContextMenu();
+          void windowManager.enableAllFrames()
+            .then(() => this.updateContextMenu())
+            .catch(error => {
+              logService.error('Failed to enable all frames from tray menu', {
+                error: error instanceof Error ? error.message : String(error),
+              });
+            });
         },
       },
       {

@@ -261,7 +261,7 @@ export function registerIPCHandlers(): void {
   });
 
   handleForSettings(IPC_CHANNELS.FRAME_ENABLE_ALL, async () => {
-    windowManager.enableAllFrames();
+    await windowManager.enableAllFrames();
     trayManager.updateContextMenu();
     return { success: true };
   });

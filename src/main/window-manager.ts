@@ -1295,11 +1295,14 @@ export class WindowManager {
     }
   }
 
-  enableAllFrames(): void {
+  async enableAllFrames(): Promise<void> {
     const frames = configService.getFrames();
-    frames.forEach(frame => {
+    await Promise.all(frames.map(async frame => {
       this.updateFrame(frame.id, { enabled: true });
-    });
+      if (!this.frameWindows.has(frame.id)) {
+        await this.openFrameWindow({ ...frame, enabled: true });
+      }
+    }));
     // Ensure settings window stays on top after enabling all frames
     this.bringSettingsToFront();
     logService.info('All frames enabled');
