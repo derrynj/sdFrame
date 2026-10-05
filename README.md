@@ -104,6 +104,32 @@ npm run linux
 
 Tagged GitHub releases build Windows x64, a universal macOS DMG/ZIP, and a Linux x64 AppImage. The Linux AppImage and installed Windows build support automatic updates. macOS automatic updates require a Developer ID signing certificate. To enable signed (and optionally notarized) macOS release builds, add the repository Actions secrets `MACOS_CERTIFICATE_P12` (base64-encoded Developer ID Application `.p12`) and `MACOS_CERTIFICATE_PASSWORD`; for notarization also add `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, and `APPLE_TEAM_ID`. Without the certificate, the workflow still creates unsigned macOS builds, but macOS automatic updates will not work and Gatekeeper may warn.
 
+### Installing and launching
+
+Download the build for your operating system from the [sdFrame GitHub Releases](https://github.com/derrynj/sdFrame/releases).
+
+#### macOS
+
+1. Download and open the `.dmg` file.
+2. Drag **sdFrame** into **Applications**, then eject the mounted disk image.
+3. Open sdFrame from Applications. For an unsigned release, macOS may block the first launch because the developer cannot be verified. If you trust the download, use **System Settings → Privacy & Security → Open Anyway**, then confirm the prompt.
+
+Unsigned macOS builds are not eligible for automatic updates. A signed and notarized release avoids the usual first-launch Gatekeeper warning.
+
+#### Linux
+
+1. Download the `.AppImage` file.
+2. Make it executable, then launch it. For example, from a terminal in the download folder:
+
+   ```bash
+   chmod +x sdFrame-*.AppImage
+   ./sdFrame-*.AppImage
+   ```
+
+   In a file manager, you can instead open the file's **Properties → Permissions** and enable **Allow executing file as program**, then choose **Run**. Do not choose **Disk Image Mounter**.
+
+AppImages are intended to run across many Linux distributions, but require a 64-bit x86 system and compatible system libraries. If the AppImage reports a missing FUSE library, install the FUSE 2 compatibility package provided by your distribution.
+
 Third-party notices for production npm dependencies are in [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) and included with packaged builds. Regenerate the file with `npm run notices` after changing production dependencies. Build-time development dependencies are not part of the packaged app.
 
 Published GitHub Releases are checked automatically at startup on supported installable builds. Updates download in the background; use **Restart to install** in Settings when a download is ready. To publish a release, push a version tag matching the package version, such as `v2.0.5`. GitHub Actions builds the Windows, macOS, and Linux artifacts and publishes them with update metadata to the [sdFrame GitHub Releases](https://github.com/derrynj/sdFrame/releases). Local platform build scripts do not publish.

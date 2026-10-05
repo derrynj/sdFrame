@@ -12,6 +12,10 @@ import {
   IPC_CHANNELS,
 } from '../shared/constants';
 
+function isAbortedNavigationError(error: unknown): error is Error {
+  return error instanceof Error && error.message.includes('ERR_ABORTED');
+}
+
 export class WindowManager {
   private frameWindows: Map<string, BrowserWindow> = new Map();
   private settingsWindow: BrowserWindow | null = null;
@@ -336,6 +340,15 @@ export class WindowManager {
       }
     });
 
+    window.webContents.on('did-navigate-in-page', (_event, _url, isMainFrame) => {
+      if (!isMainFrame) return;
+      this.injectDragHandle(window, config);
+    });
+
+    window.webContents.on('dom-ready', () => {
+      this.injectDragHandle(window, config);
+    });
+
     window.webContents.setWindowOpenHandler(({ url }) => {
       if (/^https?:\/\//i.test(url)) {
         shell.openExternal(url).catch(() => {});
@@ -350,6 +363,7 @@ export class WindowManager {
 
     window.webContents.on('did-fail-load', (_event, errorCode, errorDescription, _validatedURL, isMainFrame) => {
       if (!isMainFrame) return;
+      if (errorDescription === 'ERR_ABORTED') return;
       logService.error('Page load failed', {
         frameId: config.id,
         errorCode,
@@ -383,7 +397,6 @@ export class WindowManager {
 
     window.webContents.on('did-finish-load', () => {
       this.reloadCounts.delete(config.id);
-      this.injectDragHandle(window, config);
     });
 
     window.on('close', (event) => {
@@ -432,11 +445,13 @@ export class WindowManager {
     try {
       await window.loadURL(config.url);
     } catch (error) {
-      logService.error('Failed to load URL', {
-        frameId: config.id,
-        url: config.url,
-        error: error instanceof Error ? error.message : String(error)
-      });
+      if (!isAbortedNavigationError(error)) {
+        logService.error('Failed to load URL', {
+          frameId: config.id,
+          url: config.url,
+          error: error instanceof Error ? error.message : String(error)
+        });
+      }
     }
 
     // Ensure settings window stays on top after showing a new frame
@@ -611,9 +626,10 @@ export class WindowManager {
 
     const js = `
       (function() {
-        if (document.getElementById('sdframe-drag-handle')) return;
+        const titleBarId = 'sdframe-drag-handle';
+        if (document.getElementById(titleBarId) || !document.body) return false;
         const handle = document.createElement('div');
-        handle.id = 'sdframe-drag-handle';
+        handle.id = titleBarId;
         const frameIdSpan = document.createElement('span');
         frameIdSpan.className = 'frame-id';
         frameIdSpan.textContent = ${JSON.stringify(config.name ?? config.id.slice(0, 8))};
@@ -685,11 +701,20 @@ export class WindowManager {
             unsnapBtn.style.display = data.isSnapped ? 'inline-block' : 'none';
           });
         }
+        return true;
       })();
     `;
 
-    window.webContents.insertCSS(css).catch(() => {});
-    window.webContents.executeJavaScript(js).catch((error) => {
+    window.webContents.executeJavaScript(js).then(result => {
+      if (result) {
+        window.webContents.insertCSS(css).catch(error => {
+          logService.warn('Failed to insert frame title bar CSS', {
+            frameId: config.id,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        });
+      }
+    }).catch(error => {
       logService.error('Failed to execute drag handle JavaScript', {
         frameId: config.id,
         error: error instanceof Error ? error.message : String(error)
@@ -1099,12 +1124,15 @@ export class WindowManager {
     // Step 4: Load actual URLs concurrently (non-blocking)
     const urlLoadPromises = windows.map(({ window, config }) =>
       window.loadURL(config.url).catch(error => {
+        if (isAbortedNavigationError(error)) return;
         logService.error('Failed to load URL', {
           frameId: config.id,
           url: config.url,
           error: error instanceof Error ? error.message : String(error)
         });
-        this.loadErrorPage(window, config.id, config.url, 'Failed to load page');
+        if (!window.isDestroyed()) {
+          this.loadErrorPage(window, config.id, config.url, 'Failed to load page');
+        }
       })
     );
 
