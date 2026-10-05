@@ -288,6 +288,13 @@ export class WindowManager {
     const appConfig = configService.get();
     const window = new BrowserWindow({
       ...config.bounds,
+      icon: path.join(
+        __dirname,
+        '..',
+        '..',
+        'assets',
+        process.platform === 'win32' ? 'icon.ico' : 'icon.png'
+      ),
       frame: false,
       resizable: !appConfig.layoutLocked,
       movable: !appConfig.layoutLocked,
