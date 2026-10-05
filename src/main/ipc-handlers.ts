@@ -190,9 +190,7 @@ export function registerIPCHandlers(): void {
         windowManager.updateNotFoundAutoReloadSettings();
         break;
       case 'frameSize':
-        // When frame size changes, reset all frame dimensions
         configService.set('frameSize', v.value);
-        windowManager.resetAllFrameDimensions();
         break;
       default:
         configService.set(v.key, v.value as never);
