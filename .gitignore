@@ -6,6 +6,8 @@ dist/
 *.js
 *.js.map
 !scripts/*.js
+!src/renderer/error/error.js
+!src/renderer/titlebar/titlebar.js
 
 # Environment files
 .env
