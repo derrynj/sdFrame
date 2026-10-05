@@ -340,6 +340,10 @@ export class WindowManager {
       }
     });
 
+    window.webContents.on('did-navigate', () => {
+      this.injectDragHandle(window, config);
+    });
+
     window.webContents.on('did-navigate-in-page', (_event, _url, isMainFrame) => {
       if (!isMainFrame) return;
       this.injectDragHandle(window, config);
@@ -627,6 +631,18 @@ export class WindowManager {
     const js = `
       (function() {
         const titleBarId = 'sdframe-drag-handle';
+        if (document.getElementById(titleBarId)) return true;
+        const styleId = 'sdframe-drag-handle-styles';
+
+        function injectStyles() {
+          if (document.getElementById(styleId)) return;
+          const style = document.createElement('style');
+          style.id = styleId;
+          style.textContent = ${JSON.stringify(css)};
+          (document.head || document.documentElement).appendChild(style);
+        }
+
+        function build() {
         if (document.getElementById(titleBarId) || !document.body) return false;
         const handle = document.createElement('div');
         handle.id = titleBarId;
@@ -702,19 +718,38 @@ export class WindowManager {
           });
         }
         return true;
+        }
+
+        if (build()) {
+          injectStyles();
+          return true;
+        }
+
+        let observer = null;
+        function onReady() {
+          if (document.getElementById(titleBarId)) {
+            cleanup();
+            return;
+          }
+          if (build()) {
+            injectStyles();
+            cleanup();
+          }
+        }
+        function cleanup() {
+          if (observer) observer.disconnect();
+          observer = null;
+          document.removeEventListener('DOMContentLoaded', onReady);
+        }
+
+        observer = new MutationObserver(onReady);
+        observer.observe(document.documentElement || document, { childList: true, subtree: true });
+        document.addEventListener('DOMContentLoaded', onReady);
+        return true;
       })();
     `;
 
-    window.webContents.executeJavaScript(js).then(result => {
-      if (result) {
-        window.webContents.insertCSS(css).catch(error => {
-          logService.warn('Failed to insert frame title bar CSS', {
-            frameId: config.id,
-            error: error instanceof Error ? error.message : String(error),
-          });
-        });
-      }
-    }).catch(error => {
+    window.webContents.executeJavaScript(js).catch(error => {
       logService.error('Failed to execute drag handle JavaScript', {
         frameId: config.id,
         error: error instanceof Error ? error.message : String(error)
