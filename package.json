@@ -89,8 +89,7 @@
         "AppImage"
       ],
       "icon": "assets/icon.png",
-      "category": "Utility",
-      "desktopName": "com.sdframe.app"
+      "category": "Utility"
     },
     "publish": {
       "provider": "github",
